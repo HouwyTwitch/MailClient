@@ -263,16 +263,23 @@ public sealed partial class ComposeViewModel : ObservableObject
     public async Task<IReadOnlyList<Contact>> SuggestAsync(string text, CancellationToken ct)
     {
         if (text.Trim().Length < 2) return Array.Empty<Contact>();
+        var result = new List<Contact>();
         try
         {
-            return (await SelectedSession.Provider.ResolveNamesAsync(text, ct))
-                .Where(c => c.PrimaryEmail.Length > 0).Take(12).ToList();
+            result.AddRange((await SelectedSession.Provider.ResolveNamesAsync(text, ct)).Where(c => c.PrimaryEmail.Length > 0));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Warn($"Поиск в адресной книге не удался: {ex.Message}");
-            return Array.Empty<Contact>();
         }
+        // Plus people from the user's own correspondence (the only source for IMAP accounts).
+        var local = await Task.Run(() => SelectedSession.Cache.SuggestAddresses(text, 10), ct);
+        foreach (var a in local)
+        {
+            if (result.Any(c => c.EmailAddresses.Contains(a.Address, StringComparer.OrdinalIgnoreCase))) continue;
+            result.Add(new Contact { DisplayName = a.ShortName, EmailAddresses = { a.Address } });
+        }
+        return result.Take(12).ToList();
     }
 
     /// <summary>
@@ -291,6 +298,9 @@ public sealed partial class ComposeViewModel : ObservableObject
             }
             var query = string.IsNullOrWhiteSpace(entry.Address) ? entry.Name : entry.Address;
             var matches = (await SelectedSession.Provider.ResolveNamesAsync(query)).Where(c => c.PrimaryEmail.Length > 0).ToList();
+            if (matches.Count == 0)
+                matches = SelectedSession.Cache.SuggestAddresses(query, 5)
+                    .Select(a => new Contact { DisplayName = a.ShortName, EmailAddresses = { a.Address } }).ToList();
             if (matches.Count == 1)
             {
                 result.Add(new EmailAddress(matches[0].DisplayName, matches[0].PrimaryEmail));

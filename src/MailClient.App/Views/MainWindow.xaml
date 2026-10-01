@@ -39,16 +39,20 @@
                     <RadioButton Style="{StaticResource NavButton}" Tag="&#xE715;" Content="Почта" ToolTip="Почта"
                                  IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Mail}"/>
                     <RadioButton Style="{StaticResource NavButton}" Tag="&#xE787;" Content="Календарь" ToolTip="Календарь"
+                                 Visibility="{Binding SupportsCalendar, Converter={StaticResource BoolToVis}}"
                                  IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Calendar}"/>
                     <RadioButton Style="{StaticResource NavButton}" Tag="&#xE77B;" Content="Контакты" ToolTip="Контакты и адресная книга"
+                                 Visibility="{Binding SupportsContacts, Converter={StaticResource BoolToVis}}"
                                  IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Contacts}"/>
                     <RadioButton Style="{StaticResource NavButton}" Tag="&#xE9D5;" Content="Задачи" ToolTip="Задачи"
+                                 Visibility="{Binding SupportsTasks, Converter={StaticResource BoolToVis}}"
                                  IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Tasks}"/>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,8">
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE9CA;" ToolTip="Автоответ (нет на месте)" HorizontalAlignment="Center"
+                            Visibility="{Binding SupportsOutOfOffice, Converter={StaticResource BoolToVis}}"
                             Command="{Binding OpenOutOfOfficeCommand}"/>
-                    <Button Style="{StaticResource ToolButton}" Tag="&#xE713;" ToolTip="Параметры" HorizontalAlignment="Center">
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE713;" ToolTip="Параметры" HorizontalAlignment="Center" Click="SettingsButton_Click">
                         <Button.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Параметры программы…" Command="{Binding OpenSettingsCommand}"/>
@@ -125,6 +129,8 @@
                                         <MenuItem Header="Импортировать письма (.eml)…" Command="{Binding PlacementTarget.Tag.ImportEmlCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                         <Separator/>
                                         <MenuItem Header="Обновить" Command="{Binding PlacementTarget.Tag.RefreshCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                        <Separator/>
+                                        <MenuItem Header="Настройки учётной записи…" Command="{Binding PlacementTarget.Tag.EditCurrentAccountCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                                     </ContextMenu>
                                 </Border.ContextMenu>
                             </Border>

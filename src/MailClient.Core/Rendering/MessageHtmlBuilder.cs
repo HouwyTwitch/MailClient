@@ -84,6 +84,9 @@ public static partial class MessageHtmlBuilder
         return s;
     }
 
+    /// <summary>Content of &lt;body&gt; (plus &lt;style&gt; blocks), suitable for embedding into another document.</summary>
+    public static string BodyFragment(string html) => ExtractBodyContent(html);
+
     private static string ExtractBodyContent(string html)
     {
         // Keep <style> blocks from <head>, take the content of <body> when present.

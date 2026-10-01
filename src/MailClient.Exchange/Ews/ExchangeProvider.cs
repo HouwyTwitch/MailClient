@@ -20,6 +20,8 @@ public sealed class ExchangeProvider : IMailProvider
 
     public AccountSettings Account { get; }
 
+    public ProviderCapabilities Capabilities => ProviderCapabilities.All;
+
     public ExchangeProvider(AccountSettings account, ICredentialProvider credentials)
         : this(account, ExchangeHttp.CreateClient(account, credentials)) { }
 

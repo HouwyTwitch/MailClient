@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Style="{StaticResource AppWindow}"
-        Title="Учётная запись Exchange" Icon="/Assets/app.ico"
+        Title="Учётная запись" Icon="/Assets/app.ico"
         Width="620" Height="760" MinHeight="520" ResizeMode="CanResizeWithGrip"
         WindowStartupLocation="CenterScreen">
     <DockPanel>
@@ -22,28 +22,39 @@
                 <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0" FontSize="13"
                            Text="Укажите адрес электронной почты и пароль. Сервер будет найден автоматически; если это не удастся, уточните адрес EWS у администратора."/>
 
+                <TextBlock Text="Тип сервера" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="ProtocolCombo" SelectionChanged="ProtocolCombo_SelectionChanged">
+                    <ComboBoxItem Content="Microsoft Exchange (почта, календарь, контакты, задачи)" Tag="Exchange"/>
+                    <ComboBoxItem Content="IMAP / SMTP (Яндекс 360, Mail.ru, другие почтовые серверы)" Tag="Imap"/>
+                </ComboBox>
+
                 <TextBlock Text="Адрес электронной почты" Style="{StaticResource FieldLabel}"/>
                 <TextBox x:Name="EmailBox" LostFocus="EmailBox_LostFocus"/>
 
                 <TextBlock Text="Ваше имя (для отображения)" Style="{StaticResource FieldLabel}"/>
                 <TextBox x:Name="DisplayNameBox"/>
 
-                <TextBlock Text="Способ входа" Style="{StaticResource FieldLabel}"/>
-                <ComboBox x:Name="AuthCombo" SelectionChanged="AuthCombo_SelectionChanged">
-                    <ComboBoxItem Content="Имя пользователя и пароль (NTLM / Kerberos)" Tag="Password"/>
-                    <ComboBoxItem Content="Единый вход Windows (текущая учётная запись домена)" Tag="IntegratedWindows"/>
-                </ComboBox>
+                <StackPanel x:Name="AuthPanel">
+                    <TextBlock Text="Способ входа" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="AuthCombo" SelectionChanged="AuthCombo_SelectionChanged">
+                        <ComboBoxItem Content="Имя пользователя и пароль (NTLM / Kerberos)" Tag="Password"/>
+                        <ComboBoxItem Content="Единый вход Windows (текущая учётная запись домена)" Tag="IntegratedWindows"/>
+                    </ComboBox>
+                </StackPanel>
+
+                <TextBlock x:Name="SsoHint" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
 
                 <StackPanel x:Name="PasswordPanel">
                     <TextBlock Text="Имя пользователя" Style="{StaticResource FieldLabel}"/>
                     <TextBox x:Name="UserBox" ToolTip="Например: ДОМЕН\ivanov, ivanov@corp.local или адрес почты"/>
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,3,0,0" Text="Форматы: ДОМЕН\пользователь, пользователь@домен или адрес электронной почты."/>
+                    <TextBlock x:Name="UserHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap" Text="Логин Windows (ДОМЕН\логин или логин@домен). Он может отличаться от адреса почты — при проверке подключения программа попробует несколько вариантов."/>
                     <TextBlock Text="Пароль" Style="{StaticResource FieldLabel}"/>
                     <PasswordBox x:Name="PasswordBox"/>
-                    <TextBlock Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
+                    <TextBlock x:Name="PasswordHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
                                Text="Пароль хранится только на этом компьютере в зашифрованном виде (Windows DPAPI)."/>
                 </StackPanel>
 
+                <StackPanel x:Name="ExchangePanel">
                 <TextBlock Text="Сервер" Style="{StaticResource SectionHeader}" Margin="0,22,0,0"/>
                 <TextBlock Text="Адрес EWS" Style="{StaticResource FieldLabel}"/>
                 <DockPanel>
@@ -59,9 +70,77 @@
                     <ComboBoxItem Content="Exchange 2013" Tag="Exchange2013"/>
                     <ComboBoxItem Content="Exchange 2010 SP2 / SP3" Tag="Exchange2010_SP2"/>
                 </ComboBox>
+                </StackPanel>
+
+                <StackPanel x:Name="ImapPanel" Visibility="Collapsed">
+                    <TextBlock Text="Серверы" Style="{StaticResource SectionHeader}" Margin="0,22,0,0"/>
+                    <DockPanel Margin="0,6,0,0">
+                        <Button DockPanel.Dock="Right" Content="Заполнить по адресу" Margin="8,0,0,0" Click="Preset_Click"
+                                ToolTip="Подставить настройки для Яндекс 360, Mail.ru или стандартные imap./smtp. адреса домена"/>
+                        <ComboBox x:Name="PresetCombo" SelectionChanged="PresetCombo_SelectionChanged">
+                            <ComboBoxItem Content="Выберите почтовую службу…" Tag=""/>
+                            <ComboBoxItem Content="Яндекс 360 / Яндекс Почта" Tag="yandex"/>
+                            <ComboBoxItem Content="Mail.ru / VK WorkSpace" Tag="mailru"/>
+                            <ComboBoxItem Content="Rambler" Tag="rambler"/>
+                            <ComboBoxItem Content="Microsoft Exchange по IMAP" Tag="exchange"/>
+                        </ComboBox>
+                    </DockPanel>
+
+                    <TextBlock Text="Входящая почта (IMAP)" Style="{StaticResource FieldLabel}"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="150"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="ImapHostBox" ToolTip="Например: imap.yandex.ru"/>
+                        <TextBox x:Name="ImapPortBox" Grid.Column="2" ToolTip="Порт"/>
+                        <ComboBox x:Name="ImapSecurityCombo" Grid.Column="4" SelectionChanged="Security_SelectionChanged">
+                            <ComboBoxItem Content="SSL/TLS" Tag="SslOnConnect"/>
+                            <ComboBoxItem Content="STARTTLS" Tag="StartTls"/>
+                            <ComboBoxItem Content="Без шифрования" Tag="None"/>
+                        </ComboBox>
+                    </Grid>
+
+                    <TextBlock Text="Исходящая почта (SMTP)" Style="{StaticResource FieldLabel}"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="150"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SmtpHostBox" ToolTip="Например: smtp.yandex.ru"/>
+                        <TextBox x:Name="SmtpPortBox" Grid.Column="2" ToolTip="Порт"/>
+                        <ComboBox x:Name="SmtpSecurityCombo" Grid.Column="4" SelectionChanged="Security_SelectionChanged">
+                            <ComboBoxItem Content="SSL/TLS" Tag="SslOnConnect"/>
+                            <ComboBoxItem Content="STARTTLS" Tag="StartTls"/>
+                            <ComboBoxItem Content="Без шифрования" Tag="None"/>
+                        </ComboBox>
+                    </Grid>
+                    <CheckBox x:Name="SaveSentCheck" Content="Сохранять копии отправленных писем в папке «Отправленные»" Margin="0,10,0,0"/>
+                    <Border Background="{DynamicResource Brush.Banner}" CornerRadius="6" Padding="12,8" Margin="0,12,0,0">
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Brush.BannerText}"
+                                   Text="Яндекс 360 и Mail.ru не принимают обычный пароль от почты в сторонних программах. Создайте «пароль приложения» в настройках безопасности почтового ящика (Яндекс ID → Безопасность → Пароли приложений; Mail.ru → Безопасность → Пароли для внешних приложений) и введите его в поле «Пароль». Также включите доступ по IMAP в настройках почты."/>
+                    </Border>
+                </StackPanel>
 
                 <Expander Header="Дополнительно" Margin="0,18,0,0" Foreground="{DynamicResource Brush.Text}">
                     <StackPanel Margin="0,4,0,0">
+                        <StackPanel x:Name="ExchangeAdvanced">
+                        <TextBlock Text="Протокол проверки подлинности" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="SchemeCombo">
+                            <ComboBoxItem Content="Автоматически (Kerberos → NTLM → Basic)" Tag="Auto"/>
+                            <ComboBoxItem Content="NTLM (как в Thunderbird)" Tag="Ntlm"/>
+                            <ComboBoxItem Content="Kerberos (Negotiate)" Tag="Negotiate"/>
+                            <ComboBoxItem Content="Basic" Tag="Basic"/>
+                        </ComboBox>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
+                                   Text="Если при «Автоматически» сервер отклоняет верный пароль, выберите NTLM. Проверка подключения подбирает протокол сама."/>
+
                         <TextBlock Text="Домен (если не указан в имени пользователя)" Style="{StaticResource FieldLabel}"/>
                         <TextBox x:Name="DomainBox"/>
 
@@ -69,6 +148,7 @@
                         <TextBox x:Name="SharedBox" ToolTip="Адрес общего ящика, к которому у вас есть полный доступ, например office@company.ru"/>
                         <TextBlock Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
                                    Text="Если указан, будет открыт этот ящик, а письма будут отправляться от его имени (требуются права «Отправить как»)."/>
+                        </StackPanel>
 
                         <TextBlock Text="Интервал проверки почты" Style="{StaticResource FieldLabel}"/>
                         <ComboBox x:Name="IntervalCombo" HorizontalAlignment="Left" MinWidth="200">

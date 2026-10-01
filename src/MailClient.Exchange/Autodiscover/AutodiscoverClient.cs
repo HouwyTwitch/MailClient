@@ -44,6 +44,9 @@ public sealed class AutodiscoverClient
     /// <summary>Log of attempted URLs and outcomes, useful for troubleshooting in the UI.</summary>
     public List<string> Log { get; } = new();
 
+    /// <summary>Explanation of the first 401 seen, reported if no endpoint succeeds.</summary>
+    public string? LastAuthFailure { get; private set; }
+
     public async Task<AutodiscoverResult> DiscoverAsync(string emailAddress, CancellationToken ct = default)
     {
         using var client = _clientFactory();
@@ -75,9 +78,11 @@ public sealed class AutodiscoverClient
                 }
             }
             if (nextEmail == null) break;
+
             Log.Add($"Redirected to address {nextEmail}");
             email = nextEmail;
         }
+        if (LastAuthFailure != null) throw new MailAuthenticationException(LastAuthFailure);
         throw new MailServiceException(
             "Не удалось автоматически найти сервер Exchange для этого адреса. Укажите адрес EWS вручную " +
             "(обычно https://mail.<ваш-домен>/EWS/Exchange.asmx) или уточните его у администратора.", "AutodiscoverFailed");
@@ -110,8 +115,10 @@ public sealed class AutodiscoverClient
             }
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                Log.Add($"{url} → 401 Unauthorized");
-                throw new MailAuthenticationException($"Сервер автообнаружения {new Uri(url).Host} отклонил имя пользователя или пароль.");
+                // Keep trying the other endpoints: e.g. https://domain/ may be an unrelated web site.
+                Log.Add($"{url} → 401 Unauthorized ({string.Join(", ", response.Headers.WwwAuthenticate.Select(h => h.Scheme))})");
+                LastAuthFailure ??= Http.ExchangeHttp.DescribeAuthFailure(response);
+                return new Outcome(null, null);
             }
             if (!response.IsSuccessStatusCode)
             {
@@ -142,10 +149,6 @@ public sealed class AutodiscoverClient
             if (parsed.RedirectAddress != null) return new Outcome(null, parsed.RedirectAddress);
             Log.Add($"{url} → {parsed.Error ?? "no EWS settings in response"}");
             return new Outcome(null, null);
-        }
-        catch (MailAuthenticationException)
-        {
-            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException)
         {

@@ -4,6 +4,7 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using MailClient.Core.Models;
+using MailClient.Core.Security;
 using MailClient.Core.Services;
 
 namespace MailClient.Exchange.Http;
@@ -27,25 +28,16 @@ public static class ExchangeHttp
             CookieContainer = new CookieContainer(),
         };
 
-        var customRoots = ParseCertificates(account.TrustedRootCertificatesPem);
-        var pinned = string.IsNullOrWhiteSpace(account.TrustedCertificateThumbprint)
-            ? null : NormalizeThumbprint(account.TrustedCertificateThumbprint);
-        if (customRoots.Count > 0 || pinned != null)
-        {
-            sockets.SslOptions = new SslClientAuthenticationOptions
-            {
-                RemoteCertificateValidationCallback = (_, cert, _, errors) =>
-                    ValidateServerCertificate(cert, errors, customRoots, pinned),
-            };
-        }
+        if (CertificateTrust.CreateCallback(account) is { } validate)
+            sockets.SslOptions = new SslClientAuthenticationOptions { RemoteCertificateValidationCallback = validate };
 
         switch (account.AuthMethod)
         {
             case AuthMethod.Password:
-                sockets.Credentials = BuildNetworkCredential(account, credentials.GetPassword(account.Id) ?? "");
+                sockets.Credentials = RestrictScheme(BuildNetworkCredential(account, credentials.GetPassword(account.Id) ?? ""), account.AuthScheme);
                 return sockets;
             case AuthMethod.IntegratedWindows:
-                sockets.Credentials = CredentialCache.DefaultNetworkCredentials;
+                sockets.Credentials = RestrictScheme(CredentialCache.DefaultNetworkCredentials, account.AuthScheme);
                 return sockets;
             case AuthMethod.OAuth2:
                 return new BearerTokenHandler(account, credentials) { InnerHandler = sockets };
@@ -53,6 +45,19 @@ public static class ExchangeHttp
                 throw new ArgumentOutOfRangeException(nameof(account), account.AuthMethod, "Неизвестный способ входа");
         }
     }
+
+    /// <summary>
+    /// Limits which challenge scheme the credentials answer. .NET tries Negotiate (Kerberos) first when the
+    /// server offers it; if Kerberos is misconfigured for the host (load balancer, DNS alias, missing SPN) that
+    /// fails with 401 while plain NTLM — what Thunderbird uses — succeeds.
+    /// </summary>
+    public static ICredentials RestrictScheme(NetworkCredential credential, HttpAuthScheme scheme) => scheme switch
+    {
+        HttpAuthScheme.Ntlm => new SchemeCredentials(credential, "NTLM"),
+        HttpAuthScheme.Negotiate => new SchemeCredentials(credential, "Negotiate"),
+        HttpAuthScheme.Basic => new SchemeCredentials(credential, "Basic"),
+        _ => credential,
+    };
 
     public static HttpClient CreateClient(AccountSettings account, ICredentialProvider credentials)
     {
@@ -77,55 +82,35 @@ public static class ExchangeHttp
             domain = user[..slash];
             user = user[(slash + 1)..];
         }
+        // A UPN (user@domain) already identifies the domain; sending a separate domain breaks NTLM.
+        else if (user.Contains('@'))
+        {
+            domain = "";
+        }
         return new NetworkCredential(user, password, domain);
     }
 
     /// <summary>
-    /// Accepts a certificate that Windows trusts, one that chains to a user-supplied root CA
-    /// (host name must still match), or the exact pinned certificate.
+    /// Explains a 401 from the authentication schemes the server offered (WWW-Authenticate),
+    /// e.g. a Microsoft 365 tenant that only accepts OAuth.
     /// </summary>
+    public static string DescribeAuthFailure(HttpResponseMessage response)
+    {
+        var schemes = response.Headers.WwwAuthenticate.Select(h => h.Scheme).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (schemes.Count > 0 && schemes.All(s => s.Equals("Bearer", StringComparison.OrdinalIgnoreCase)))
+            return "Сервер принимает только вход через OAuth (Microsoft 365 / Exchange Online), пароль не подходит. " +
+                   "Подключитесь по IMAP с паролем приложения или обратитесь к администратору.";
+        var offered = schemes.Count == 0 ? "" : $" Сервер поддерживает: {string.Join(", ", schemes)}.";
+        return "Сервер отклонил имя пользователя или пароль (HTTP 401)." + offered +
+               " Имя пользователя часто отличается от адреса почты: попробуйте формат ДОМЕН\\логин (например, CORP\\ivanov) " +
+               "или логин@домен.local — уточните у администратора.";
+    }
+
     internal static bool ValidateServerCertificate(X509Certificate? cert, SslPolicyErrors errors,
-        IReadOnlyCollection<X509Certificate2> customRoots, string? pinnedThumbprint)
-    {
-        if (errors == SslPolicyErrors.None) return true;
-        if (cert == null) return false;
-        using var leaf = new X509Certificate2(cert);
+        IReadOnlyCollection<X509Certificate2> customRoots, string? pinnedThumbprint) =>
+        CertificateTrust.Validate(cert, errors, customRoots, pinnedThumbprint);
 
-        if (pinnedThumbprint != null &&
-            (NormalizeThumbprint(Convert.ToHexString(SHA256.HashData(leaf.RawData))) == pinnedThumbprint ||
-             NormalizeThumbprint(leaf.Thumbprint) == pinnedThumbprint))
-            return true;
-
-        if (customRoots.Count == 0 || errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch)
-                                   || errors.HasFlag(SslPolicyErrors.RemoteCertificateNotAvailable))
-            return false;
-
-        using var chain = new X509Chain();
-        chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-        foreach (var root in customRoots) chain.ChainPolicy.CustomTrustStore.Add(root);
-        return chain.Build(leaf);
-    }
-
-    /// <summary>Parses one or more PEM certificates (or a single Base64 DER blob).</summary>
-    public static List<X509Certificate2> ParseCertificates(string? pem)
-    {
-        var result = new List<X509Certificate2>();
-        if (string.IsNullOrWhiteSpace(pem)) return result;
-        const string begin = "-----BEGIN CERTIFICATE-----", end = "-----END CERTIFICATE-----";
-        int pos = 0;
-        while ((pos = pem.IndexOf(begin, pos, StringComparison.Ordinal)) >= 0)
-        {
-            int stop = pem.IndexOf(end, pos, StringComparison.Ordinal);
-            if (stop < 0) break;
-            var b64 = pem[(pos + begin.Length)..stop];
-            result.Add(new X509Certificate2(Convert.FromBase64String(new string(b64.Where(c => !char.IsWhiteSpace(c)).ToArray()))));
-            pos = stop + end.Length;
-        }
-        if (result.Count == 0)
-            result.Add(new X509Certificate2(Convert.FromBase64String(new string(pem.Where(c => !char.IsWhiteSpace(c)).ToArray()))));
-        return result;
-    }
+    public static List<X509Certificate2> ParseCertificates(string? pem) => CertificateTrust.ParseCertificates(pem);
 
     private static string NormalizeThumbprint(string s) =>
         new string(s.Where(Uri.IsHexDigit).ToArray()).ToUpperInvariant();
@@ -166,4 +151,20 @@ internal sealed class BearerTokenHandler : DelegatingHandler
         retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await base.SendAsync(retry, ct).ConfigureAwait(false);
     }
+}
+
+/// <summary>Credentials that are only offered for one authentication scheme.</summary>
+internal sealed class SchemeCredentials : ICredentials
+{
+    private readonly NetworkCredential _credential;
+    private readonly string _scheme;
+
+    public SchemeCredentials(NetworkCredential credential, string scheme)
+    {
+        _credential = credential;
+        _scheme = scheme;
+    }
+
+    public NetworkCredential? GetCredential(Uri uri, string authType) =>
+        string.Equals(authType, _scheme, StringComparison.OrdinalIgnoreCase) ? _credential : null;
 }
