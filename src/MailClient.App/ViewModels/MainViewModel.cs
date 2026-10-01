@@ -99,7 +99,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public void Start()
     {
-        foreach (var account in _settings.Accounts)
+        foreach (var account in _settings.Accounts.ToList())
         {
             try
             {
@@ -108,7 +108,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             catch (Exception ex)
             {
                 Log.Error($"Учётная запись {account.EmailAddress} не открыта", ex);
-                Dialogs.Error(ex, $"Не удалось открыть учётную запись «{account.EmailAddress}». Проверьте её настройки");
+                // Without a session the account could not be reached from the UI: offer its settings right away.
+                if (!Dialogs.Confirm($"Не удалось открыть учётную запись «{account.EmailAddress}».\n\n{RuText.Error(ex)}\n\nОткрыть настройки учётной записи?"))
+                    continue;
+                var copy = account.Clone();
+                if (WindowFactory.EditAccount(copy, _credentials, isNew: false) != true) continue;
+                var index = _settings.Accounts.FindIndex(a => a.Id == copy.Id);
+                if (index >= 0) _settings.Accounts[index] = copy;
+                SettingsStore.Save(_settings);
+                try { AddSession(copy); }
+                catch (Exception again) { Dialogs.Error(again, "Учётная запись по-прежнему не открывается"); }
             }
         }
         RebuildTree();

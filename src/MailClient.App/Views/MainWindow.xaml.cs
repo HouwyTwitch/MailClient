@@ -220,6 +220,16 @@ public partial class MainWindow : Window
             _vm.LoadMoreCommand.Execute(null);
     }
 
+    /// <summary>A button's ContextMenu only opens on right-click by default: open it on a normal click too.</summary>
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { ContextMenu: { } menu } button) return;
+        menu.DataContext = DataContext;
+        menu.PlacementTarget = button;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Right;
+        menu.IsOpen = true;
+    }
+
     private async void Print_Click(object sender, RoutedEventArgs e)
     {
         if (_vm.HasPreview) await BodyView.PrintAsync();

@@ -42,6 +42,8 @@
                     </ComboBox>
                 </StackPanel>
 
+                <TextBlock x:Name="SsoHint" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+
                 <StackPanel x:Name="PasswordPanel">
                     <TextBlock Text="Имя пользователя" Style="{StaticResource FieldLabel}"/>
                     <TextBox x:Name="UserBox" ToolTip="Например: ДОМЕН\ivanov, ivanov@corp.local или адрес почты"/>

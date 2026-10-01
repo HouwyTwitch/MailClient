@@ -22,6 +22,12 @@ public partial class AccountWindow : Window
 
     private bool IsImap => TagOf(ProtocolCombo) == "Imap";
 
+    /// <summary>True when Windows is logged on with a domain account (user domain differs from the computer name).</summary>
+    private static bool IsDomainJoined =>
+        !string.Equals(Environment.UserDomainName, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+
+    private static string WindowsAccount => $"{Environment.UserDomainName}\\{Environment.UserName}";
+
     public AccountWindow(AccountSettings account, CredentialProvider credentials, bool isNew)
     {
         InitializeComponent();
@@ -29,7 +35,12 @@ public partial class AccountWindow : Window
         _credentials = credentials;
         _isNew = isNew;
         _org = OrganizationDefaults.Load();
-        if (isNew) _org.ApplyTo(account);
+        if (isNew)
+        {
+            // On a domain computer default to Windows single sign-on (as Thunderbird/Outlook do), unless policy says otherwise.
+            if (IsDomainJoined && string.IsNullOrWhiteSpace(_org.AuthMethod)) account.AuthMethod = AuthMethod.IntegratedWindows;
+            _org.ApplyTo(account);
+        }
         _certPem = account.TrustedRootCertificatesPem;
 
         HeaderText.Text = isNew ? "Новая учётная запись" : "Настройки учётной записи";
@@ -93,6 +104,10 @@ public partial class AccountWindow : Window
         ExchangeAdvanced.Visibility = imap ? Visibility.Collapsed : Visibility.Visible;
         ImapPanel.Visibility = imap ? Visibility.Visible : Visibility.Collapsed;
         PasswordPanel.Visibility = imap || TagOf(AuthCombo) == "Password" ? Visibility.Visible : Visibility.Collapsed;
+        SsoHint.Visibility = !imap && TagOf(AuthCombo) == "IntegratedWindows" ? Visibility.Visible : Visibility.Collapsed;
+        SsoHint.Text = IsDomainJoined
+            ? $"Будет использована текущая учётная запись Windows: {WindowsAccount}. Пароль вводить не нужно."
+            : "Компьютер не входит в домен: единый вход, скорее всего, не сработает. Выберите вход по имени пользователя и паролю.";
         UserHint.Text = imap
             ? "Обычно это полный адрес электронной почты."
             : "Логин Windows (ДОМЕН\\логин или логин@домен). Он может отличаться от адреса почты — при проверке подключения программа попробует несколько вариантов.";
@@ -228,7 +243,19 @@ public partial class AccountWindow : Window
     private string? Validate(AccountSettings a, bool requireEws)
     {
         if (!EmailAddress.LooksValid(a.EmailAddress)) return "Введите корректный адрес электронной почты.";
-        if (a.AuthMethod == AuthMethod.Password && string.IsNullOrEmpty(EffectivePassword())) return "Введите пароль.";
+        if (a.AuthMethod == AuthMethod.Password && string.IsNullOrEmpty(EffectivePassword()))
+        {
+            if (a.Protocol == MailProtocol.Exchange && IsDomainJoined)
+            {
+                Select(AuthCombo, "IntegratedWindows");
+                ApplyProtocolUi();
+                a.AuthMethod = AuthMethod.IntegratedWindows;
+            }
+            else
+            {
+                return "Введите пароль.";
+            }
+        }
         if (a.Protocol == MailProtocol.Imap)
         {
             if (a.ImapHost.Length == 0 || a.SmtpHost.Length == 0) return "Укажите серверы входящей (IMAP) и исходящей (SMTP) почты или нажмите «Заполнить по адресу».";
@@ -357,6 +384,28 @@ public partial class AccountWindow : Window
             {
                 firstError = ex;
                 break; // not a credentials problem (network, certificate, URL)
+            }
+        }
+        // Password rejected on a domain computer: try Windows single sign-on (what Thunderbird does with NTLM).
+        if (firstError is MailAuthenticationException && a.Protocol == MailProtocol.Exchange &&
+            a.AuthMethod == AuthMethod.Password && IsDomainJoined)
+        {
+            var sso = a.Clone();
+            sso.AuthMethod = AuthMethod.IntegratedWindows;
+            try
+            {
+                using var provider = ProviderFactory.Create(sso, new TemporaryCredentials(""));
+                var info = await provider.ConnectAsync();
+                Log.Info($"Подключение через единый вход Windows ({WindowsAccount}) успешно");
+                Select(AuthCombo, "IntegratedWindows");
+                ApplyProtocolUi();
+                Dialogs.Info($"Сервер не принял пароль, но подключение через единый вход Windows ({WindowsAccount}) работает — " +
+                             $"этот способ выбран в настройках.\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Единый вход Windows тоже не сработал: {ex.Message}");
             }
         }
         Log.Warn($"Проверка подключения не удалась: {firstError?.Message}");
