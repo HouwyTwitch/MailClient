@@ -316,6 +316,25 @@ public sealed class LocalCache
         return list;
     }
 
+    /// <summary>Distinct senders matching <paramref name="text"/>, most recent first (address autocomplete).</summary>
+    public List<EmailAddress> SuggestAddresses(string text, int limit)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT from_name, from_addr, MAX(received) AS last FROM messages
+            WHERE from_addr <> '' AND (ulower(from_name) LIKE $q ESCAPE '\' OR ulower(from_addr) LIKE $q ESCAPE '\')
+            GROUP BY lower(from_addr) ORDER BY last DESC LIMIT $l
+            """;
+        var escaped = text.Trim().ToLowerInvariant().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+        cmd.Parameters.AddWithValue("$q", $"%{escaped}%");
+        cmd.Parameters.AddWithValue("$l", limit);
+        using var r = cmd.ExecuteReader();
+        var list = new List<EmailAddress>();
+        while (r.Read()) list.Add(new EmailAddress(r.GetString(0), r.GetString(1)));
+        return list;
+    }
+
     public int CountMessages(string folderId)
     {
         using var c = Open();

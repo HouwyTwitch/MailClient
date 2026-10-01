@@ -2,6 +2,19 @@ using MailClient.Core.Models;
 
 namespace MailClient.Core.Services;
 
+[Flags]
+public enum ProviderCapabilities
+{
+    None = 0,
+    Calendar = 1,
+    Contacts = 2,
+    Tasks = 4,
+    OutOfOffice = 8,
+    /// <summary>Organization address book (Global Address List).</summary>
+    Directory = 16,
+    All = Calendar | Contacts | Tasks | OutOfOffice | Directory,
+}
+
 /// <summary>
 /// Server protocol abstraction. The Exchange (EWS) implementation lives in MailClient.Exchange;
 /// other back-ends (e.g. Microsoft Graph) can be added by implementing this interface.
@@ -9,6 +22,9 @@ namespace MailClient.Core.Services;
 public interface IMailProvider : IDisposable
 {
     AccountSettings Account { get; }
+
+    /// <summary>Optional features this back-end supports; the UI hides the rest.</summary>
+    ProviderCapabilities Capabilities { get; }
 
     /// <summary>Verifies connectivity/credentials and returns basic mailbox information.</summary>
     Task<MailboxInfo> ConnectAsync(CancellationToken ct = default);

@@ -30,6 +30,7 @@
   <ItemGroup>
     <ProjectReference Include="..\MailClient.Core\MailClient.Core.csproj" />
     <ProjectReference Include="..\MailClient.Exchange\MailClient.Exchange.csproj" />
+    <ProjectReference Include="..\MailClient.Imap\MailClient.Imap.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\app.ico" />

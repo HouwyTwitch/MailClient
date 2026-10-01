@@ -19,6 +19,24 @@ public enum ExchangeServerVersion
     Exchange2016,
 }
 
+public enum MailProtocol
+{
+    /// <summary>Microsoft Exchange via EWS: mail, calendar, contacts, tasks, address book.</summary>
+    Exchange,
+    /// <summary>IMAP for reading + SMTP for sending (Yandex 360, Mail.ru, Exchange with IMAP, Dovecot, ...).</summary>
+    Imap,
+}
+
+public enum ConnectionSecurity
+{
+    /// <summary>TLS from the first byte (IMAPS 993, SMTPS 465).</summary>
+    SslOnConnect,
+    /// <summary>Plain connection upgraded with STARTTLS (IMAP 143, SMTP 587).</summary>
+    StartTls,
+    /// <summary>No encryption (only for testing inside a trusted network).</summary>
+    None,
+}
+
 public sealed class AccountSettings
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -57,6 +75,17 @@ public sealed class AccountSettings
 
     /// <summary>Optional mailbox to open instead of the user's own (requires delegate/full access).</summary>
     public string SharedMailbox { get; set; } = "";
+
+    public MailProtocol Protocol { get; set; } = MailProtocol.Exchange;
+
+    public string ImapHost { get; set; } = "";
+    public int ImapPort { get; set; } = 993;
+    public ConnectionSecurity ImapSecurity { get; set; } = ConnectionSecurity.SslOnConnect;
+    public string SmtpHost { get; set; } = "";
+    public int SmtpPort { get; set; } = 465;
+    public ConnectionSecurity SmtpSecurity { get; set; } = ConnectionSecurity.SslOnConnect;
+    /// <summary>Append sent messages to the Sent folder (disable for servers that do it themselves, e.g. Gmail).</summary>
+    public bool SaveSentCopy { get; set; } = true;
 
     public int SyncIntervalSeconds { get; set; } = 60;
 

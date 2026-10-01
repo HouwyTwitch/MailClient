@@ -18,6 +18,9 @@ public partial class AccountWindow : Window
     private readonly OrganizationDefaults _org;
     private string _certPem;
     private bool _passwordChanged;
+    private bool _initialized;
+
+    private bool IsImap => TagOf(ProtocolCombo) == "Imap";
 
     public AccountWindow(AccountSettings account, CredentialProvider credentials, bool isNew)
     {
@@ -29,7 +32,7 @@ public partial class AccountWindow : Window
         if (isNew) _org.ApplyTo(account);
         _certPem = account.TrustedRootCertificatesPem;
 
-        HeaderText.Text = isNew ? "Подключение к Microsoft Exchange" : "Настройки учётной записи";
+        HeaderText.Text = isNew ? "Новая учётная запись" : "Настройки учётной записи";
         EmailBox.Text = account.EmailAddress;
         DisplayNameBox.Text = account.DisplayName;
         UserBox.Text = account.UserName;
@@ -40,6 +43,17 @@ public partial class AccountWindow : Window
         Select(AuthCombo, account.AuthMethod == AuthMethod.IntegratedWindows ? "IntegratedWindows" : "Password");
         Select(VersionCombo, account.ServerVersion.ToString());
         Select(IntervalCombo, account.SyncIntervalSeconds.ToString());
+        ImapHostBox.Text = account.ImapHost;
+        ImapPortBox.Text = account.ImapPort.ToString();
+        SmtpHostBox.Text = account.SmtpHost;
+        SmtpPortBox.Text = account.SmtpPort.ToString();
+        Select(ImapSecurityCombo, account.ImapSecurity.ToString());
+        Select(SmtpSecurityCombo, account.SmtpSecurity.ToString());
+        SaveSentCheck.IsChecked = account.SaveSentCopy;
+        PresetCombo.SelectedIndex = 0;
+        Select(ProtocolCombo, account.Protocol.ToString());
+        _initialized = true;
+        ApplyProtocolUi();
         if (IntervalCombo.SelectedIndex < 0) IntervalCombo.SelectedIndex = 1;
         UpdateCertText();
 
@@ -62,10 +76,73 @@ public partial class AccountWindow : Window
 
     private static string TagOf(ComboBox combo) => (string)((ComboBoxItem)combo.SelectedItem).Tag;
 
-    private void AuthCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void AuthCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyProtocolUi();
+
+    private void ProtocolCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (PasswordPanel != null)
-            PasswordPanel.Visibility = TagOf(AuthCombo) == "Password" ? Visibility.Visible : Visibility.Collapsed;
+        ApplyProtocolUi();
+        if (_initialized && IsImap && string.IsNullOrWhiteSpace(ImapHostBox.Text) && EmailBox.Text.Contains('@')) ApplyGuessedPreset();
+    }
+
+    private void ApplyProtocolUi()
+    {
+        if (!_initialized) return;
+        bool imap = IsImap;
+        AuthPanel.Visibility = imap ? Visibility.Collapsed : Visibility.Visible;
+        ExchangePanel.Visibility = imap ? Visibility.Collapsed : Visibility.Visible;
+        ExchangeAdvanced.Visibility = imap ? Visibility.Collapsed : Visibility.Visible;
+        ImapPanel.Visibility = imap ? Visibility.Visible : Visibility.Collapsed;
+        PasswordPanel.Visibility = imap || TagOf(AuthCombo) == "Password" ? Visibility.Visible : Visibility.Collapsed;
+        UserHint.Text = imap
+            ? "Обычно это полный адрес электронной почты."
+            : "Логин Windows (ДОМЕН\\логин или логин@домен). Он может отличаться от адреса почты — при проверке подключения программа попробует несколько вариантов.";
+    }
+
+    private void ApplyPreset(MailPresets.Preset p)
+    {
+        ImapHostBox.Text = p.ImapHost;
+        ImapPortBox.Text = p.ImapPort.ToString();
+        Select(ImapSecurityCombo, p.ImapSecurity.ToString());
+        SmtpHostBox.Text = p.SmtpHost;
+        SmtpPortBox.Text = p.SmtpPort.ToString();
+        Select(SmtpSecurityCombo, p.SmtpSecurity.ToString());
+    }
+
+    private void ApplyGuessedPreset()
+    {
+        var (key, preset) = MailPresets.Guess(EmailBox.Text.Trim());
+        ApplyPreset(preset);
+        _initialized = false;
+        Select(PresetCombo, key ?? "");
+        _initialized = true;
+    }
+
+    private void Preset_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EmailBox.Text.Contains('@'))
+        {
+            Dialogs.Error("Сначала введите адрес электронной почты.");
+            return;
+        }
+        ApplyGuessedPreset();
+    }
+
+    private void PresetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_initialized) return;
+        var key = TagOf(PresetCombo);
+        if (key == "exchange") ApplyPreset(MailPresets.ExchangeImap(EmailBox.Text.Trim()));
+        else if (MailPresets.ByKey.TryGetValue(key, out var p)) ApplyPreset(p);
+    }
+
+    /// <summary>Switching encryption moves the port to the matching standard port.</summary>
+    private void Security_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_initialized) return;
+        if (sender == ImapSecurityCombo && ImapPortBox.Text is "993" or "143" or "")
+            ImapPortBox.Text = TagOf(ImapSecurityCombo) == "SslOnConnect" ? "993" : "143";
+        if (sender == SmtpSecurityCombo && SmtpPortBox.Text is "465" or "587" or "25" or "")
+            SmtpPortBox.Text = TagOf(SmtpSecurityCombo) switch { "SslOnConnect" => "465", "StartTls" => "587", _ => "25" };
     }
 
     private void EmailBox_LostFocus(object sender, RoutedEventArgs e)
@@ -77,6 +154,7 @@ public partial class AccountWindow : Window
             EmailBox.Text = email;
         }
         if (string.IsNullOrWhiteSpace(UserBox.Text)) UserBox.Text = email;
+        if (IsImap && string.IsNullOrWhiteSpace(ImapHostBox.Text) && email.Contains('@')) ApplyGuessedPreset();
     }
 
     private void UpdateCertText() =>
@@ -122,6 +200,15 @@ public partial class AccountWindow : Window
         a.Signature = SignatureBox.Text;
         a.SyncIntervalSeconds = int.Parse(TagOf(IntervalCombo));
         a.TrustedRootCertificatesPem = _certPem;
+        a.Protocol = IsImap ? MailProtocol.Imap : MailProtocol.Exchange;
+        a.ImapHost = ImapHostBox.Text.Trim();
+        a.ImapPort = int.TryParse(ImapPortBox.Text.Trim(), out var ip) ? ip : 0;
+        a.ImapSecurity = Enum.Parse<ConnectionSecurity>(TagOf(ImapSecurityCombo));
+        a.SmtpHost = SmtpHostBox.Text.Trim();
+        a.SmtpPort = int.TryParse(SmtpPortBox.Text.Trim(), out var sp) ? sp : 0;
+        a.SmtpSecurity = Enum.Parse<ConnectionSecurity>(TagOf(SmtpSecurityCombo));
+        a.SaveSentCopy = SaveSentCheck.IsChecked == true;
+        if (a.Protocol == MailProtocol.Imap) a.AuthMethod = AuthMethod.Password;
         return a;
     }
 
@@ -142,6 +229,15 @@ public partial class AccountWindow : Window
     {
         if (!EmailAddress.LooksValid(a.EmailAddress)) return "Введите корректный адрес электронной почты.";
         if (a.AuthMethod == AuthMethod.Password && string.IsNullOrEmpty(EffectivePassword())) return "Введите пароль.";
+        if (a.Protocol == MailProtocol.Imap)
+        {
+            if (a.ImapHost.Length == 0 || a.SmtpHost.Length == 0) return "Укажите серверы входящей (IMAP) и исходящей (SMTP) почты или нажмите «Заполнить по адресу».";
+            if (a.ImapPort is < 1 or > 65535 || a.SmtpPort is < 1 or > 65535) return "Укажите корректные номера портов (например, 993 для IMAP и 465 для SMTP).";
+            if ((a.ImapSecurity == ConnectionSecurity.None || a.SmtpSecurity == ConnectionSecurity.None) &&
+                !Dialogs.Confirm("Выбрано подключение без шифрования — пароль и письма будут передаваться в открытом виде. Продолжить?"))
+                return "";
+            return null;
+        }
         if (requireEws && !(Uri.TryCreate(a.EwsUrl, UriKind.Absolute, out var u) && u.Scheme is "https" or "http"))
             return "Укажите адрес EWS (например, https://mail.company.ru/EWS/Exchange.asmx) или нажмите «Найти автоматически».";
         if (requireEws && a.EwsUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
@@ -199,6 +295,12 @@ public partial class AccountWindow : Window
     /// </summary>
     private static IEnumerable<(string user, string domain)> LoginVariants(AccountSettings a)
     {
+        if (a.Protocol == MailProtocol.Imap)
+        {
+            var login = string.IsNullOrWhiteSpace(a.UserName) ? a.EmailAddress : a.UserName.Trim();
+            return new[] { (login, ""), (a.EmailAddress, ""), (a.EmailAddress.Split('@')[0], "") }
+                .Where(v => v.Item1.Length > 0).DistinctBy(v => v.Item1.ToLowerInvariant());
+        }
         var entered = string.IsNullOrWhiteSpace(a.UserName) ? a.EmailAddress : a.UserName.Trim();
         var local = a.EmailAddress.Split('@')[0];
         var mailDomain = a.EmailAddress.Contains('@') ? a.EmailAddress.Split('@')[1] : "";
@@ -228,7 +330,7 @@ public partial class AccountWindow : Window
             attempt.Domain = domain;
             try
             {
-                using var provider = new ExchangeProvider(attempt, new TemporaryCredentials(EffectivePassword()));
+                using var provider = ProviderFactory.Create(attempt, new TemporaryCredentials(EffectivePassword()));
                 var info = await provider.ConnectAsync();
                 Log.Info($"Проверка подключения успешна: {a.EmailAddress} как «{user}», сервер {info.ServerVersion}");
                 bool changed = !string.Equals(user, a.UserName, StringComparison.OrdinalIgnoreCase) || domain != a.Domain;
@@ -247,8 +349,9 @@ public partial class AccountWindow : Window
             {
                 Log.Warn($"Вход как «{user}» отклонён: {ex.Message}");
                 firstError ??= ex;
-                // OAuth-only servers reject every password variant - no point trying further.
-                if (ex.Message.Contains("OAuth")) break;
+                // OAuth-only servers reject every password variant - no point trying further;
+                // an SMTP rejection after a successful IMAP login is not a login-format problem either.
+                if (ex.Message.Contains("OAuth") || ex.Message.StartsWith("SMTP")) break;
             }
             catch (Exception ex)
             {
@@ -267,8 +370,8 @@ public partial class AccountWindow : Window
         SetBusy(true);
         try
         {
-            if (string.IsNullOrWhiteSpace(a.EwsUrl) && Validate(a, false) == null && await DiscoverAsync(a)) a = Collect();
-            if (Validate(a, requireEws: true) is { } error)
+            if (!IsImap && string.IsNullOrWhiteSpace(a.EwsUrl) && Validate(a, false) == null && await DiscoverAsync(a)) a = Collect();
+            if (Validate(a, requireEws: !IsImap) is { } error)
             {
                 if (error.Length > 0) Dialogs.Error(error);
                 return;
@@ -287,8 +390,8 @@ public partial class AccountWindow : Window
         SetBusy(true);
         try
         {
-            if (string.IsNullOrWhiteSpace(a.EwsUrl) && Validate(a, false) == null && await DiscoverAsync(a)) a = Collect();
-            if (Validate(a, requireEws: true) is { } error)
+            if (!IsImap && string.IsNullOrWhiteSpace(a.EwsUrl) && Validate(a, false) == null && await DiscoverAsync(a)) a = Collect();
+            if (Validate(a, requireEws: !IsImap) is { } error)
             {
                 if (error.Length > 0) Dialogs.Error(error);
                 return;

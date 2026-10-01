@@ -1,7 +1,6 @@
 using MailClient.Core.Models;
 using MailClient.Core.Services;
 using MailClient.Core.Storage;
-using MailClient.Exchange.Ews;
 
 namespace MailClient.App.Services;
 
@@ -34,7 +33,7 @@ public sealed class AccountSession : IDisposable
     public AccountSession(AccountSettings settings, ICredentialProvider credentials)
     {
         Settings = settings;
-        Provider = new ExchangeProvider(settings, credentials);
+        Provider = ProviderFactory.Create(settings, credentials);
         Cache = new LocalCache(AppPaths.CacheFile(settings.Id));
         Sync = new SyncEngine(Provider, Cache);
     }

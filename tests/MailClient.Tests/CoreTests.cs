@@ -207,3 +207,31 @@ public class SyncEngineTests : IDisposable
         Assert.Null(fake.Last("SyncFolderItems").Element(FakeEws.M + "SyncState"));
     }
 }
+
+public class SuggestTests : IDisposable
+{
+    private readonly string _path = Path.Combine(Path.GetTempPath(), $"mc-sugg-{Guid.NewGuid():N}.db");
+
+    public void Dispose()
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var f in new[] { _path, _path + "-wal", _path + "-shm" }) if (File.Exists(f)) File.Delete(f);
+    }
+
+    [Fact]
+    public void Suggests_distinct_correspondents_case_insensitively_in_cyrillic()
+    {
+        var cache = new LocalCache(_path);
+        cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Inbox" } });
+        cache.UpsertMessages(new[]
+        {
+            new MessageSummary { Id = "1", FolderId = "F", From = new EmailAddress("Сидорова Анна", "anna@x.ru"), DateReceived = DateTimeOffset.Parse("2026-01-01T00:00:00Z") },
+            new MessageSummary { Id = "2", FolderId = "F", From = new EmailAddress("Сидорова Анна", "ANNA@x.ru"), DateReceived = DateTimeOffset.Parse("2026-02-01T00:00:00Z") },
+            new MessageSummary { Id = "3", FolderId = "F", From = new EmailAddress("Сидоров Олег", "oleg@x.ru"), DateReceived = DateTimeOffset.Parse("2026-03-01T00:00:00Z") },
+        });
+        var s = cache.SuggestAddresses("сидоров", 10);
+        Assert.Equal(2, s.Count);
+        Assert.Equal("oleg@x.ru", s[0].Address);
+        Assert.Single(cache.SuggestAddresses("anna", 10));
+    }
+}

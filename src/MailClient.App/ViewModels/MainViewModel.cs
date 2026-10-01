@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using MailClient.App.Services;
 using MailClient.App.Views;
 using MailClient.Core.Models;
+using MailClient.Core.Services;
 using Microsoft.Win32;
 
 namespace MailClient.App.ViewModels;
@@ -55,7 +56,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public List<MessageItemViewModel> SelectedMessages { get; } = new();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected))]
+    [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected),
+        nameof(SupportsCalendar), nameof(SupportsContacts), nameof(SupportsTasks), nameof(SupportsOutOfOffice))]
     private FolderNodeViewModel? _selectedFolder;
 
     [ObservableProperty]
@@ -76,6 +78,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _windowTitle = "Корпоративная почта";
 
     public bool HasSelection => SelectedMessage != null;
+
+    private ProviderCapabilities Caps => CurrentSession?.Provider.Capabilities ?? ProviderCapabilities.All;
+    public bool SupportsCalendar => Caps.HasFlag(ProviderCapabilities.Calendar);
+    public bool SupportsContacts => Caps.HasFlag(ProviderCapabilities.Contacts);
+    public bool SupportsTasks => Caps.HasFlag(ProviderCapabilities.Tasks);
+    public bool SupportsOutOfOffice => Caps.HasFlag(ProviderCapabilities.OutOfOffice);
     public bool HasPreview => Preview != null;
     public bool HasAccounts => _sessions.Count > 0;
     public string FolderTitle => SelectedFolder?.Name ?? "";
@@ -259,7 +267,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         IsSearchResult = false;
         if (newValue != null) newValue.Session.ActiveFolderId = newValue.IsAccountRoot ? null : newValue.Id;
         _ = LoadFolderAsync(primeFromServer: true);
-        if (Section != AppSection.Mail && oldValue?.Session != newValue?.Session) _ = LoadSectionAsync();
+        if (Section != AppSection.Mail && !SectionSupported(Section)) Section = AppSection.Mail;
+        else if (Section != AppSection.Mail && oldValue?.Session != newValue?.Session) _ = LoadSectionAsync();
     }
 
     private async Task LoadFolderAsync(bool primeFromServer)
@@ -766,6 +775,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private bool SectionSupported(AppSection s) => s switch
+    {
+        AppSection.Calendar => SupportsCalendar,
+        AppSection.Contacts => SupportsContacts,
+        AppSection.Tasks => SupportsTasks,
+        _ => true,
+    };
+
     partial void OnSectionChanged(AppSection value) => _ = LoadSectionAsync();
 
     private Task LoadSectionAsync() => Section switch
@@ -929,7 +946,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void OpenOutOfOffice()
     {
-        if (CurrentSession is { } s) WindowFactory.OutOfOffice(s);
+        if (CurrentSession is not { } s) return;
+        if (!SupportsOutOfOffice)
+        {
+            Dialogs.Info("Автоответы настраиваются только для учётных записей Microsoft Exchange. " +
+                         "Для Яндекс 360 и Mail.ru включите автоответ в веб-интерфейсе почты.");
+            return;
+        }
+        WindowFactory.OutOfOffice(s);
     }
 
     [RelayCommand]

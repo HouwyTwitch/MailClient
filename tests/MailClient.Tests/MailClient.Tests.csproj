@@ -12,6 +12,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\MailClient.Core\MailClient.Core.csproj" />
     <ProjectReference Include="..\..\src\MailClient.Exchange\MailClient.Exchange.csproj" />
+    <ProjectReference Include="..\..\src\MailClient.Imap\MailClient.Imap.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Schemas\*.xsd" CopyToOutputDirectory="PreserveNewest" />
