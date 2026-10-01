@@ -1,0 +1,33 @@
+name: build
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Test
+        run: dotnet test tests/MailClient.Tests -c Release
+      - name: Publish
+        run: >
+          dotnet publish src/MailClient.App -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -o publish/win-x64
+      - name: Installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DSourceDir=$pwd\publish\win-x64" installer\MailClient.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MailClient
+          path: |
+            publish/win-x64/MailClient.exe
+            publish/MailClient-Setup-*.exe

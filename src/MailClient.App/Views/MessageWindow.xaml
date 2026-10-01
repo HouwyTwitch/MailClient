@@ -1,0 +1,54 @@
+<Window x:Class="MailClient.App.Views.MessageWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:MailClient.App.ViewModels"
+        xmlns:ctl="clr-namespace:MailClient.App.Controls"
+        Style="{StaticResource AppWindow}" Icon="/Assets/app.ico" Width="900" Height="720"
+        Title="{Binding Subject}">
+    <DockPanel Background="{DynamicResource Brush.Surface}">
+        <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="8,6" Background="{DynamicResource Brush.SurfaceAlt}">
+            <WrapPanel>
+                <Button Style="{StaticResource ToolButton}" Tag="&#xE8CA;" Content="Ответить" Click="Reply_Click"/>
+                <Button Style="{StaticResource ToolButton}" Tag="&#xE8C2;" Content="Ответить всем" Click="ReplyAll_Click"/>
+                <Button Style="{StaticResource ToolButton}" Tag="&#xE89C;" Content="Переслать" Click="Forward_Click"/>
+                <Button Style="{StaticResource ToolButton}" Tag="&#xE749;" Content="Печать" Click="Print_Click"/>
+            </WrapPanel>
+        </Border>
+        <StackPanel DockPanel.Dock="Top" Margin="20,14,20,10">
+            <TextBlock Text="{Binding Subject}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding FromText}" FontWeight="SemiBold" Margin="0,8,0,0"/>
+            <TextBlock Text="{Binding DateText}" Style="{StaticResource Caption}"/>
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"><Run Text="Кому: "/><Run Text="{Binding ToText, Mode=OneWay}"/></TextBlock>
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Visibility="{Binding HasCc, Converter={StaticResource BoolToVis}}"><Run Text="Копия: "/><Run Text="{Binding CcText, Mode=OneWay}"/></TextBlock>
+        </StackPanel>
+        <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Banner}" Margin="20,0,20,8" Padding="12,6" CornerRadius="6"
+                Visibility="{Binding ShowRemoteBanner, Converter={StaticResource BoolToVis}}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Показать изображения" Padding="10,3" MinHeight="26" Command="{Binding ShowRemoteContentCommand}"/>
+                <TextBlock Text="Изображения из интернета заблокированы." VerticalAlignment="Center" Foreground="{DynamicResource Brush.BannerText}"/>
+            </DockPanel>
+        </Border>
+        <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Attachments}" Margin="18,0,18,8">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="{x:Type vm:AttachmentItemViewModel}">
+                    <Border Style="{StaticResource Card}" Margin="2" CornerRadius="6">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Style="{StaticResource ToolButton}" Tag="{Binding Icon}" Content="{Binding Name}"
+                                    Command="{Binding DataContext.OpenAttachmentCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                            <Button Style="{StaticResource ToolButton}" Tag="&#xE896;" ToolTip="Сохранить как…"
+                                    Command="{Binding DataContext.SaveAttachmentCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0">
+            <ctl:MessageBodyView x:Name="BodyView" Html="{Binding Html}"/>
+        </Border>
+    </DockPanel>
+</Window>

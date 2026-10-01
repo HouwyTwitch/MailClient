@@ -1,0 +1,18 @@
+Windows Registry Editor Version 5.00
+
+; Пример предварительной настройки через групповые политики (GPO → Конфигурация компьютера →
+; Настройка → Параметры Windows → Реестр) или вручную. Пользователю останется ввести логин и пароль.
+; Ключ также читается из HKEY_CURRENT_USER\SOFTWARE\Policies\MailClient; при совпадении значений приоритет у HKEY_LOCAL_MACHINE.
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\MailClient]
+"EwsUrl"="https://mail.company.ru/EWS/Exchange.asmx"
+"Domain"="CORP"
+"EmailDomain"="company.ru"
+; Password | IntegratedWindows (единый вход для компьютеров в домене)
+"AuthMethod"="IntegratedWindows"
+; Exchange2016 (2016/2019/SE) | Exchange2013_SP1 | Exchange2013 | Exchange2010_SP2
+"ServerVersion"="Exchange2016"
+; Корневой сертификат внутреннего УЦ / Russian Trusted Root CA, если он не установлен в хранилище Windows
+"TrustedRootCertificateFile"="C:\\ProgramData\\Company\\root-ca.cer"
+; 1 — запретить пользователям менять адрес сервера
+"LockServerSettings"=dword:00000001

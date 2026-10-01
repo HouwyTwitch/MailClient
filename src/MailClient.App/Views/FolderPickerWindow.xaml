@@ -1,0 +1,30 @@
+<Window x:Class="MailClient.App.Views.FolderPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:MailClient.App.ViewModels"
+        Style="{StaticResource AppWindow}" Width="420" Height="520" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False">
+    <DockPanel Margin="16">
+        <TextBlock x:Name="TitleText" DockPanel.Dock="Top" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Выбрать" Style="{StaticResource AccentButton}" IsDefault="True" MinWidth="100" Click="Ok_Click"/>
+            <Button Content="Отмена" IsCancel="True" MinWidth="90" Margin="8,0,0,0"/>
+        </StackPanel>
+        <Border Style="{StaticResource Card}" Padding="4">
+            <TreeView x:Name="Tree" MouseDoubleClick="Tree_MouseDoubleClick">
+                <TreeView.ItemContainerStyle>
+                    <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                        <Setter Property="IsExpanded" Value="True"/>
+                    </Style>
+                </TreeView.ItemContainerStyle>
+                <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate DataType="{x:Type vm:FolderNodeViewModel}" ItemsSource="{Binding Children}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="{Binding Icon}" FontSize="14" Margin="2,0,8,0" Foreground="{DynamicResource Brush.TextSecondary}"/>
+                            <TextBlock Text="{Binding Name}"/>
+                        </StackPanel>
+                    </HierarchicalDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+        </Border>
+    </DockPanel>
+</Window>

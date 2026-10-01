@@ -1,0 +1,47 @@
+<Window x:Class="MailClient.App.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource AppWindow}" Title="Параметры" Icon="/Assets/app.ico"
+        Width="520" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.SurfaceAlt}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="20,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Сохранить" Style="{StaticResource AccentButton}" IsDefault="True" MinWidth="110" Click="Ok_Click"/>
+                <Button Content="Отмена" IsCancel="True" MinWidth="90" Margin="8,0,0,0"/>
+            </StackPanel>
+        </Border>
+        <StackPanel Margin="24,12,24,20">
+            <TextBlock Text="Оформление" Style="{StaticResource SectionHeader}"/>
+            <ComboBox x:Name="ThemeCombo" Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="240">
+                <ComboBoxItem Content="Как в Windows" Tag="System"/>
+                <ComboBoxItem Content="Светлая тема" Tag="Light"/>
+                <ComboBoxItem Content="Тёмная тема" Tag="Dark"/>
+            </ComboBox>
+
+            <TextBlock Text="Чтение" Style="{StaticResource SectionHeader}"/>
+            <DockPanel Margin="0,6,0,0">
+                <TextBlock Text="Отмечать письмо прочитанным через" VerticalAlignment="Center"/>
+                <ComboBox x:Name="ReadDelayCombo" Margin="8,0,0,0" MinWidth="140" HorizontalAlignment="Left">
+                    <ComboBoxItem Content="сразу" Tag="0"/>
+                    <ComboBoxItem Content="2 секунды" Tag="2"/>
+                    <ComboBoxItem Content="5 секунд" Tag="5"/>
+                    <ComboBoxItem Content="никогда" Tag="-1"/>
+                </ComboBox>
+            </DockPanel>
+            <CheckBox x:Name="RemoteCheck" Content="Загружать изображения из интернета во всех письмах" Margin="0,8,0,0"/>
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="22,0,0,0"
+                       Text="Не рекомендуется: внешние изображения позволяют отправителю узнать, что письмо прочитано, и могут использоваться для фишинга."/>
+            <CheckBox x:Name="ConfirmDeleteCheck" Content="Запрашивать подтверждение при удалении писем"/>
+
+            <TextBlock Text="Уведомления и запуск" Style="{StaticResource SectionHeader}"/>
+            <CheckBox x:Name="NotifyCheck" Content="Показывать уведомления о новых письмах"/>
+            <CheckBox x:Name="TrayCheck" Content="При закрытии окна продолжать работу в области уведомлений"/>
+            <CheckBox x:Name="StartupCheck" Content="Запускать вместе с Windows"/>
+
+            <TextBlock Text="Конфиденциальность" Style="{StaticResource SectionHeader}"/>
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Программа не передаёт никаких данных третьим лицам и не использует телеметрию. Письма и пароли хранятся только на этом компьютере и на вашем сервере Exchange."/>
+            <Button Content="Очистить список доверенных отправителей" HorizontalAlignment="Left" Margin="0,10,0,0" Click="ClearTrusted_Click"/>
+        </StackPanel>
+    </DockPanel>
+</Window>
