@@ -109,7 +109,7 @@ public sealed class EwsClient : IDisposable
             using (response)
             {
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
-                    throw new MailAuthenticationException("Сервер отклонил учётные данные (HTTP 401). Проверьте имя пользователя, пароль и способ входа.");
+                    throw new MailAuthenticationException(Http.ExchangeHttp.DescribeAuthFailure(response));
                 if (response.StatusCode == HttpStatusCode.Forbidden)
                     throw new MailAuthenticationException("Доступ запрещён (HTTP 403). Возможно, для этого почтового ящика отключён доступ по EWS — обратитесь к администратору.");
                 if ((int)response.StatusCode is >= 300 and < 400)

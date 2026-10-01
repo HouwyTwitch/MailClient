@@ -43,9 +43,10 @@ public partial class AccountWindow : Window
         if (IntervalCombo.SelectedIndex < 0) IntervalCombo.SelectedIndex = 1;
         UpdateCertText();
 
+        // Never prefill the password box: typing into a placeholder would corrupt the password.
         if (!isNew && credentials.GetPassword(account.Id) is { Length: > 0 })
-            PasswordBox.Password = "••••••••"; // placeholder, not the real password
-        PasswordBox.PasswordChanged += (_, _) => _passwordChanged = true;
+            PasswordHint.Text = "Пароль сохранён. Оставьте поле пустым, чтобы не менять его.";
+        PasswordBox.PasswordChanged += (_, _) => _passwordChanged = PasswordBox.Password.Length > 0;
 
         if (_org.LockServerSettings && !string.IsNullOrWhiteSpace(_org.EwsUrl))
         {
@@ -192,23 +193,72 @@ public partial class AccountWindow : Window
         finally { SetBusy(false); }
     }
 
+    /// <summary>
+    /// Alternative login spellings tried automatically when the server rejects the one entered:
+    /// the Windows login often differs from the e-mail address.
+    /// </summary>
+    private static IEnumerable<(string user, string domain)> LoginVariants(AccountSettings a)
+    {
+        var entered = string.IsNullOrWhiteSpace(a.UserName) ? a.EmailAddress : a.UserName.Trim();
+        var local = a.EmailAddress.Split('@')[0];
+        var mailDomain = a.EmailAddress.Contains('@') ? a.EmailAddress.Split('@')[1] : "";
+        var bareUser = entered.Contains('\\') ? entered[(entered.IndexOf('\\') + 1)..] : entered.Split('@')[0];
+        var netbios = a.Domain.Length > 0 ? a.Domain : mailDomain.Split('.')[0].ToUpperInvariant();
+
+        var list = new List<(string, string)>
+        {
+            (entered, a.Domain),
+            (a.EmailAddress, ""),
+            ($"{bareUser}@{mailDomain}", ""),
+            ($"{netbios}\\{bareUser}", ""),
+            ($"{netbios}\\{local}", ""),
+        };
+        return list.Where(v => v.Item1.Length > 0 && !v.Item1.StartsWith('@') && !v.Item1.EndsWith('@') && !v.Item1.StartsWith('\\'))
+                   .DistinctBy(v => (v.Item1.ToLowerInvariant(), v.Item2.ToLowerInvariant()));
+    }
+
     private async Task<bool> TestAsync(AccountSettings a, bool showSuccess)
     {
-        try
+        Exception? firstError = null;
+        var variants = a.AuthMethod == AuthMethod.Password ? LoginVariants(a).ToList() : new() { (a.UserName, a.Domain) };
+        foreach (var (user, domain) in variants)
         {
-            using var provider = new ExchangeProvider(a, new TemporaryCredentials(EffectivePassword()));
-            var info = await provider.ConnectAsync();
-            Log.Info($"Проверка подключения успешна: {a.EmailAddress}, сервер {info.ServerVersion}");
-            if (showSuccess)
-                Dialogs.Info($"Подключение установлено.\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
-            return true;
+            var attempt = a.Clone();
+            attempt.UserName = user;
+            attempt.Domain = domain;
+            try
+            {
+                using var provider = new ExchangeProvider(attempt, new TemporaryCredentials(EffectivePassword()));
+                var info = await provider.ConnectAsync();
+                Log.Info($"Проверка подключения успешна: {a.EmailAddress} как «{user}», сервер {info.ServerVersion}");
+                bool changed = !string.Equals(user, a.UserName, StringComparison.OrdinalIgnoreCase) || domain != a.Domain;
+                if (changed)
+                {
+                    UserBox.Text = user;
+                    DomainBox.Text = domain;
+                }
+                if (showSuccess || changed)
+                    Dialogs.Info("Подключение установлено." +
+                                 (changed ? $"\n\nСервер принял имя пользователя «{user}» — оно подставлено в настройки." : "") +
+                                 $"\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
+                return true;
+            }
+            catch (MailAuthenticationException ex)
+            {
+                Log.Warn($"Вход как «{user}» отклонён: {ex.Message}");
+                firstError ??= ex;
+                // OAuth-only servers reject every password variant - no point trying further.
+                if (ex.Message.Contains("OAuth")) break;
+            }
+            catch (Exception ex)
+            {
+                firstError = ex;
+                break; // not a credentials problem (network, certificate, URL)
+            }
         }
-        catch (Exception ex)
-        {
-            Log.Warn($"Проверка подключения не удалась: {ex.Message}");
-            Dialogs.Error(ex, "Не удалось подключиться к серверу");
-            return false;
-        }
+        Log.Warn($"Проверка подключения не удалась: {firstError?.Message}");
+        Dialogs.Error(firstError!, "Не удалось подключиться к серверу");
+        return false;
     }
 
     private async void Test_Click(object sender, RoutedEventArgs e)
@@ -255,6 +305,7 @@ public partial class AccountWindow : Window
             {
                 _credentials.DeletePassword(a.Id);
             }
+            a = Collect(); // the connection test may have corrected the login
             CopyInto(a, _account);
             DialogResult = true;
         }

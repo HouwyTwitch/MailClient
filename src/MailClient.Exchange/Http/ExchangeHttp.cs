@@ -77,7 +77,28 @@ public static class ExchangeHttp
             domain = user[..slash];
             user = user[(slash + 1)..];
         }
+        // A UPN (user@domain) already identifies the domain; sending a separate domain breaks NTLM.
+        else if (user.Contains('@'))
+        {
+            domain = "";
+        }
         return new NetworkCredential(user, password, domain);
+    }
+
+    /// <summary>
+    /// Explains a 401 from the authentication schemes the server offered (WWW-Authenticate),
+    /// e.g. a Microsoft 365 tenant that only accepts OAuth.
+    /// </summary>
+    public static string DescribeAuthFailure(HttpResponseMessage response)
+    {
+        var schemes = response.Headers.WwwAuthenticate.Select(h => h.Scheme).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (schemes.Count > 0 && schemes.All(s => s.Equals("Bearer", StringComparison.OrdinalIgnoreCase)))
+            return "Сервер принимает только вход через OAuth (Microsoft 365 / Exchange Online), пароль не подходит. " +
+                   "Подключитесь по IMAP с паролем приложения или обратитесь к администратору.";
+        var offered = schemes.Count == 0 ? "" : $" Сервер поддерживает: {string.Join(", ", schemes)}.";
+        return "Сервер отклонил имя пользователя или пароль (HTTP 401)." + offered +
+               " Имя пользователя часто отличается от адреса почты: попробуйте формат ДОМЕН\\логин (например, CORP\\ivanov) " +
+               "или логин@домен.local — уточните у администратора.";
     }
 
     /// <summary>
