@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+  html, body { margin: 0; height: 100%; background: #ffffff; color: #1a1a1a; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+  #ed { min-height: 100%; padding: 12px 16px; outline: none; box-sizing: border-box; line-height: 1.45; word-wrap: break-word; }
+  #ed:empty:before { content: attr(data-placeholder); color: #8a8a8a; }
+  blockquote { border-left: 3px solid #9a9a9a; margin: 0 0 0 4px; padding-left: 10px; color: #555; }
+  img { max-width: 100%; }
+  body.dark { background: #252528; color: #f1f1f3; }
+  body.dark blockquote { color: #b5b5b5; }
+  a { color: #0067c0; }
+</style>
+</head>
+<body>
+<div id="ed" contenteditable="true" spellcheck="true" data-placeholder="Текст письма…"></div>
+<script>
+  const ed = document.getElementById('ed');
+  function post(m) { if (window.chrome && chrome.webview) chrome.webview.postMessage(m); }
+  function setContent(h) { ed.innerHTML = h; }
+  function getContent() { return ed.innerHTML; }
+  function exec(cmd, value) { ed.focus(); document.execCommand(cmd, false, value || null); post('changed'); }
+  function setDark(d) { document.body.classList.toggle('dark', d); }
+  function focusStart() {
+    ed.focus();
+    const r = document.createRange(); r.setStart(ed, 0); r.collapse(true);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+  ed.addEventListener('input', () => post('changed'));
+  // Pasted screenshots: insert as data: images (converted to inline cid: attachments when sending).
+  ed.addEventListener('paste', e => {
+    const items = (e.clipboardData || {}).items || [];
+    for (const it of items) {
+      if (it.type && it.type.indexOf('image/') === 0) {
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => { document.execCommand('insertImage', false, reader.result); post('changed'); };
+        reader.readAsDataURL(it.getAsFile());
+        return;
+      }
+    }
+  });
+  // Files dropped onto the editor go to the attachment list instead of being opened.
+  document.addEventListener('dragover', e => {
+    if (e.dataTransfer && Array.from(e.dataTransfer.types).indexOf('Files') >= 0) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; }
+  });
+  document.addEventListener('drop', e => {
+    if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); post('filedrop'); }
+  });
+</script>
+</body>
+</html>

@@ -22,7 +22,10 @@ public sealed class LocalCache
         {
             DataSource = databasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            // Private cache + WAL: readers never block the background sync writer, and lock waits use the
+            // busy timeout (shared-cache mode would fail immediately with SQLITE_LOCKED instead).
+            Cache = SqliteCacheMode.Default,
+            DefaultTimeout = 30,
         }.ToString();
         Initialize();
     }
@@ -31,6 +34,8 @@ public sealed class LocalCache
     {
         var c = new SqliteConnection(_connectionString);
         c.Open();
+        // SQLite's LIKE/lower() only fold ASCII; Cyrillic needs a Unicode-aware lower-case.
+        c.CreateFunction("ulower", (string? s) => s?.ToLowerInvariant(), isDeterministic: true);
         return c;
     }
 
@@ -267,8 +272,8 @@ public sealed class LocalCache
         var where = "folder_id=$f";
         if (!string.IsNullOrWhiteSpace(search))
         {
-            where += " AND (subject LIKE $q ESCAPE '\\' OR from_name LIKE $q ESCAPE '\\' OR from_addr LIKE $q ESCAPE '\\' OR display_to LIKE $q ESCAPE '\\' OR preview LIKE $q ESCAPE '\\')";
-            var escaped = search.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+            where += " AND (ulower(subject) LIKE $q ESCAPE '\\' OR ulower(from_name) LIKE $q ESCAPE '\\' OR ulower(from_addr) LIKE $q ESCAPE '\\' OR ulower(display_to) LIKE $q ESCAPE '\\' OR ulower(preview) LIKE $q ESCAPE '\\')";
+            var escaped = search.ToLowerInvariant().Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
             cmd.Parameters.AddWithValue("$q", $"%{escaped}%");
         }
         cmd.CommandText = $"""
