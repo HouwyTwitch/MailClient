@@ -10,6 +10,19 @@ public enum AuthMethod
     OAuth2,
 }
 
+/// <summary>HTTP authentication scheme for Exchange (EWS).</summary>
+public enum HttpAuthScheme
+{
+    /// <summary>Whatever the server offers, in .NET order: Negotiate (Kerberos), NTLM, Basic.</summary>
+    Auto,
+    /// <summary>NTLM only — what Thunderbird and many other clients use; works when Kerberos is misconfigured.</summary>
+    Ntlm,
+    /// <summary>Negotiate (Kerberos with NTLM fallback).</summary>
+    Negotiate,
+    /// <summary>Basic (password sent base64-encoded inside TLS).</summary>
+    Basic,
+}
+
 /// <summary>EWS schema version requested from the server. Determines which features are available.</summary>
 public enum ExchangeServerVersion
 {
@@ -47,6 +60,9 @@ public sealed class AccountSettings
     public string EwsUrl { get; set; } = "";
 
     public AuthMethod AuthMethod { get; set; } = AuthMethod.Password;
+
+    /// <summary>Which HTTP authentication scheme to use with Exchange.</summary>
+    public HttpAuthScheme AuthScheme { get; set; } = HttpAuthScheme.Auto;
 
     /// <summary>Login name: user@domain (UPN), DOMAIN\user or just user (with <see cref="Domain"/>).</summary>
     public string UserName { get; set; } = "";

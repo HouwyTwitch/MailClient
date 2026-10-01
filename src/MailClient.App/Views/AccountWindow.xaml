@@ -131,6 +131,16 @@
                 <Expander Header="Дополнительно" Margin="0,18,0,0" Foreground="{DynamicResource Brush.Text}">
                     <StackPanel Margin="0,4,0,0">
                         <StackPanel x:Name="ExchangeAdvanced">
+                        <TextBlock Text="Протокол проверки подлинности" Style="{StaticResource FieldLabel}"/>
+                        <ComboBox x:Name="SchemeCombo">
+                            <ComboBoxItem Content="Автоматически (Kerberos → NTLM → Basic)" Tag="Auto"/>
+                            <ComboBoxItem Content="NTLM (как в Thunderbird)" Tag="Ntlm"/>
+                            <ComboBoxItem Content="Kerberos (Negotiate)" Tag="Negotiate"/>
+                            <ComboBoxItem Content="Basic" Tag="Basic"/>
+                        </ComboBox>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
+                                   Text="Если при «Автоматически» сервер отклоняет верный пароль, выберите NTLM. Проверка подключения подбирает протокол сама."/>
+
                         <TextBlock Text="Домен (если не указан в имени пользователя)" Style="{StaticResource FieldLabel}"/>
                         <TextBox x:Name="DomainBox"/>
 

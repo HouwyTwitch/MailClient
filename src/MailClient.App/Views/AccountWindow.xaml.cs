@@ -53,6 +53,7 @@ public partial class AccountWindow : Window
         SignatureBox.Text = account.Signature;
         Select(AuthCombo, account.AuthMethod == AuthMethod.IntegratedWindows ? "IntegratedWindows" : "Password");
         Select(VersionCombo, account.ServerVersion.ToString());
+        Select(SchemeCombo, account.AuthScheme.ToString());
         Select(IntervalCombo, account.SyncIntervalSeconds.ToString());
         ImapHostBox.Text = account.ImapHost;
         ImapPortBox.Text = account.ImapPort.ToString();
@@ -215,6 +216,7 @@ public partial class AccountWindow : Window
         a.Signature = SignatureBox.Text;
         a.SyncIntervalSeconds = int.Parse(TagOf(IntervalCombo));
         a.TrustedRootCertificatesPem = _certPem;
+        a.AuthScheme = Enum.Parse<HttpAuthScheme>(TagOf(SchemeCombo));
         a.Protocol = IsImap ? MailProtocol.Imap : MailProtocol.Exchange;
         a.ImapHost = ImapHostBox.Text.Trim();
         a.ImapPort = int.TryParse(ImapPortBox.Text.Trim(), out var ip) ? ip : 0;
@@ -346,70 +348,109 @@ public partial class AccountWindow : Window
                    .DistinctBy(v => (v.Item1.ToLowerInvariant(), v.Item2.ToLowerInvariant()));
     }
 
+    private static string SchemeName(HttpAuthScheme s) => s switch
+    {
+        HttpAuthScheme.Ntlm => "NTLM",
+        HttpAuthScheme.Negotiate => "Kerberos (Negotiate)",
+        HttpAuthScheme.Basic => "Basic",
+        _ => "автоматически",
+    };
+
+    /// <summary>Authentication schemes to try: the chosen one, or (for "Auto") Auto, then NTLM-only, then Basic.</summary>
+    private static IReadOnlyList<HttpAuthScheme> SchemesToTry(AccountSettings a)
+    {
+        if (a.Protocol == MailProtocol.Imap) return new[] { HttpAuthScheme.Auto };
+        if (a.AuthScheme != HttpAuthScheme.Auto) return new[] { a.AuthScheme };
+        return a.AuthMethod == AuthMethod.IntegratedWindows
+            ? new[] { HttpAuthScheme.Auto, HttpAuthScheme.Ntlm }
+            : new[] { HttpAuthScheme.Auto, HttpAuthScheme.Ntlm, HttpAuthScheme.Basic };
+    }
+
+    /// <summary>Tries one combination; returns mailbox info or null on an authentication failure.</summary>
+    private async Task<(MailboxInfo? info, Exception? error)> TryConnectAsync(AccountSettings attempt)
+    {
+        try
+        {
+            using var provider = ProviderFactory.Create(attempt, new TemporaryCredentials(EffectivePassword()));
+            return (await provider.ConnectAsync(), null);
+        }
+        catch (Exception ex)
+        {
+            return (null, ex);
+        }
+    }
+
     private async Task<bool> TestAsync(AccountSettings a, bool showSuccess)
     {
         Exception? firstError = null;
+        var attempts = new List<AccountSettings>();
         var variants = a.AuthMethod == AuthMethod.Password ? LoginVariants(a).ToList() : new() { (a.UserName, a.Domain) };
-        foreach (var (user, domain) in variants)
-        {
-            var attempt = a.Clone();
-            attempt.UserName = user;
-            attempt.Domain = domain;
-            try
+        foreach (var scheme in SchemesToTry(a))
+            foreach (var (user, domain) in variants)
             {
-                using var provider = ProviderFactory.Create(attempt, new TemporaryCredentials(EffectivePassword()));
-                var info = await provider.ConnectAsync();
-                Log.Info($"Проверка подключения успешна: {a.EmailAddress} как «{user}», сервер {info.ServerVersion}");
-                bool changed = !string.Equals(user, a.UserName, StringComparison.OrdinalIgnoreCase) || domain != a.Domain;
-                if (changed)
+                var attempt = a.Clone();
+                attempt.UserName = user;
+                attempt.Domain = domain;
+                attempt.AuthScheme = scheme;
+                attempts.Add(attempt);
+            }
+        // Last resort on a domain computer: Windows single sign-on (what Thunderbird does with NTLM).
+        if (a.Protocol == MailProtocol.Exchange && a.AuthMethod == AuthMethod.Password && IsDomainJoined)
+        {
+            foreach (var scheme in new[] { HttpAuthScheme.Auto, HttpAuthScheme.Ntlm })
+            {
+                var sso = a.Clone();
+                sso.AuthMethod = AuthMethod.IntegratedWindows;
+                sso.AuthScheme = scheme;
+                attempts.Add(sso);
+            }
+        }
+
+        foreach (var attempt in attempts)
+        {
+            var who = attempt.AuthMethod == AuthMethod.IntegratedWindows ? $"единый вход Windows ({WindowsAccount})" : $"«{attempt.UserName}»";
+            var (info, error) = await TryConnectAsync(attempt);
+            if (info != null)
+            {
+                Log.Info($"Проверка подключения успешна: {a.EmailAddress} — {who}, протокол {SchemeName(attempt.AuthScheme)}, сервер {info.ServerVersion}");
+                var changes = new List<string>();
+                if (attempt.AuthMethod != a.AuthMethod)
                 {
-                    UserBox.Text = user;
-                    DomainBox.Text = domain;
+                    Select(AuthCombo, "IntegratedWindows");
+                    changes.Add($"способ входа — единый вход Windows ({WindowsAccount})");
                 }
-                if (showSuccess || changed)
+                else if (!string.Equals(attempt.UserName, a.UserName, StringComparison.OrdinalIgnoreCase) || attempt.Domain != a.Domain)
+                {
+                    UserBox.Text = attempt.UserName;
+                    DomainBox.Text = attempt.Domain;
+                    changes.Add($"имя пользователя «{attempt.UserName}»");
+                }
+                if (attempt.AuthScheme != a.AuthScheme)
+                {
+                    Select(SchemeCombo, attempt.AuthScheme.ToString());
+                    changes.Add($"протокол проверки подлинности {SchemeName(attempt.AuthScheme)}");
+                }
+                ApplyProtocolUi();
+                if (showSuccess || changes.Count > 0)
                     Dialogs.Info("Подключение установлено." +
-                                 (changed ? $"\n\nСервер принял имя пользователя «{user}» — оно подставлено в настройки." : "") +
+                                 (changes.Count > 0 ? $"\n\nПодобраны и сохранены в настройках: {string.Join("; ", changes)}." : "") +
                                  $"\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
                 return true;
             }
-            catch (MailAuthenticationException ex)
+
+            Log.Warn($"Вход {who}, протокол {SchemeName(attempt.AuthScheme)}: {error!.Message}");
+            if (error is not MailAuthenticationException)
             {
-                Log.Warn($"Вход как «{user}» отклонён: {ex.Message}");
-                firstError ??= ex;
-                // OAuth-only servers reject every password variant - no point trying further;
-                // an SMTP rejection after a successful IMAP login is not a login-format problem either.
-                if (ex.Message.Contains("OAuth") || ex.Message.StartsWith("SMTP")) break;
+                firstError = error;
+                break; // network, certificate or URL problem - other credentials will not help
             }
-            catch (Exception ex)
-            {
-                firstError = ex;
-                break; // not a credentials problem (network, certificate, URL)
-            }
+            firstError ??= error;
+            // OAuth-only servers reject every password variant; an SMTP rejection is not a login-format problem.
+            if (error.Message.Contains("OAuth") || error.Message.StartsWith("SMTP")) break;
         }
-        // Password rejected on a domain computer: try Windows single sign-on (what Thunderbird does with NTLM).
-        if (firstError is MailAuthenticationException && a.Protocol == MailProtocol.Exchange &&
-            a.AuthMethod == AuthMethod.Password && IsDomainJoined)
-        {
-            var sso = a.Clone();
-            sso.AuthMethod = AuthMethod.IntegratedWindows;
-            try
-            {
-                using var provider = ProviderFactory.Create(sso, new TemporaryCredentials(""));
-                var info = await provider.ConnectAsync();
-                Log.Info($"Подключение через единый вход Windows ({WindowsAccount}) успешно");
-                Select(AuthCombo, "IntegratedWindows");
-                ApplyProtocolUi();
-                Dialogs.Info($"Сервер не принял пароль, но подключение через единый вход Windows ({WindowsAccount}) работает — " +
-                             $"этот способ выбран в настройках.\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Единый вход Windows тоже не сработал: {ex.Message}");
-            }
-        }
-        Log.Warn($"Проверка подключения не удалась: {firstError?.Message}");
-        Dialogs.Error(firstError!, "Не удалось подключиться к серверу");
+
+        Log.Warn($"Проверка подключения не удалась ({attempts.Count} вариантов): {firstError?.Message}");
+        Dialogs.Error(firstError!, $"Не удалось подключиться к серверу (проверено вариантов входа: {attempts.Count}; подробности — в журнале)");
         return false;
     }
 

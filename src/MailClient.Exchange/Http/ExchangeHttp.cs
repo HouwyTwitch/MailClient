@@ -34,10 +34,10 @@ public static class ExchangeHttp
         switch (account.AuthMethod)
         {
             case AuthMethod.Password:
-                sockets.Credentials = BuildNetworkCredential(account, credentials.GetPassword(account.Id) ?? "");
+                sockets.Credentials = RestrictScheme(BuildNetworkCredential(account, credentials.GetPassword(account.Id) ?? ""), account.AuthScheme);
                 return sockets;
             case AuthMethod.IntegratedWindows:
-                sockets.Credentials = CredentialCache.DefaultNetworkCredentials;
+                sockets.Credentials = RestrictScheme(CredentialCache.DefaultNetworkCredentials, account.AuthScheme);
                 return sockets;
             case AuthMethod.OAuth2:
                 return new BearerTokenHandler(account, credentials) { InnerHandler = sockets };
@@ -45,6 +45,19 @@ public static class ExchangeHttp
                 throw new ArgumentOutOfRangeException(nameof(account), account.AuthMethod, "Неизвестный способ входа");
         }
     }
+
+    /// <summary>
+    /// Limits which challenge scheme the credentials answer. .NET tries Negotiate (Kerberos) first when the
+    /// server offers it; if Kerberos is misconfigured for the host (load balancer, DNS alias, missing SPN) that
+    /// fails with 401 while plain NTLM — what Thunderbird uses — succeeds.
+    /// </summary>
+    public static ICredentials RestrictScheme(NetworkCredential credential, HttpAuthScheme scheme) => scheme switch
+    {
+        HttpAuthScheme.Ntlm => new SchemeCredentials(credential, "NTLM"),
+        HttpAuthScheme.Negotiate => new SchemeCredentials(credential, "Negotiate"),
+        HttpAuthScheme.Basic => new SchemeCredentials(credential, "Basic"),
+        _ => credential,
+    };
 
     public static HttpClient CreateClient(AccountSettings account, ICredentialProvider credentials)
     {
@@ -138,4 +151,20 @@ internal sealed class BearerTokenHandler : DelegatingHandler
         retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await base.SendAsync(retry, ct).ConfigureAwait(false);
     }
+}
+
+/// <summary>Credentials that are only offered for one authentication scheme.</summary>
+internal sealed class SchemeCredentials : ICredentials
+{
+    private readonly NetworkCredential _credential;
+    private readonly string _scheme;
+
+    public SchemeCredentials(NetworkCredential credential, string scheme)
+    {
+        _credential = credential;
+        _scheme = scheme;
+    }
+
+    public NetworkCredential? GetCredential(Uri uri, string authType) =>
+        string.Equals(authType, _scheme, StringComparison.OrdinalIgnoreCase) ? _credential : null;
 }
