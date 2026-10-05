@@ -135,6 +135,35 @@
         </Setter>
     </Style>
 
+    <!-- A person's name in a message header: plain text that underlines on hover and opens the contact card. -->
+    <Style x:Key="NameLink" TargetType="Button">
+        <Setter Property="AutomationProperties.Name" Value="{Binding Content, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="ToolTipService.InitialShowDelay" Value="500"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <!-- A TextBlock, not a ContentPresenter: an underscore in a name must not become an access key. -->
+                    <TextBlock x:Name="text" Background="{TemplateBinding Background}"
+                               Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}"/>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="text" Property="TextDecorations" Value="Underline"/>
+                            <Setter TargetName="text" Property="Foreground" Value="{DynamicResource Brush.Accent}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="text" Property="TextDecorations" Value="Underline"/>
+                            <Setter TargetName="text" Property="Foreground" Value="{DynamicResource Brush.Accent}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Compact formatting-toolbar button; content is an icon (TextBlock with the Icon style, or a vector Path). -->
     <Style x:Key="FormatButton" TargetType="ButtonBase">
         <!-- Icon-only buttons: screen readers announce the tooltip text. -->
@@ -305,6 +334,17 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- Read-only text that looks like a label but can be selected and copied. -->
+    <Style x:Key="SelectableText" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="IsReadOnly" Value="True"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="MinHeight" Value="0"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
     <!-- Borderless text box used inside compose header rows -->

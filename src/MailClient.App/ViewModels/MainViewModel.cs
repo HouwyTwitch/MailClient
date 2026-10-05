@@ -446,7 +446,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             await Task.Delay(120, ct); // debounce fast keyboard navigation
             IsPreviewLoading = true;
-            var preview = await MessagePreviewViewModel.LoadAsync(session, _settings, item.Id, ct);
+            var preview = await MessagePreviewViewModel.LoadAsync(session, _sessions, _settings, item.Id, ct);
             if (ct.IsCancellationRequested) return;
             Preview = preview;
             if (!item.IsRead && _settings.MarkAsReadDelaySeconds >= 0)
@@ -733,7 +733,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 WindowFactory.OpenCompose(await ComposeViewModel.FromDraftAsync(_sessions, folder.Session, item.Id), _settings);
                 return;
             }
-            var preview = await MessagePreviewViewModel.LoadAsync(folder.Session, _settings, item.Id, CancellationToken.None);
+            var preview = await MessagePreviewViewModel.LoadAsync(folder.Session, _sessions, _settings, item.Id, CancellationToken.None);
             WindowFactory.OpenMessage(preview, this);
         }
         catch (Exception ex)
