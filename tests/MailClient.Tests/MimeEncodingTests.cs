@@ -117,4 +117,46 @@ public class MimeEncodingTests
         MimeMail.Fill(m, MimeMail.Parse(bytes), "x");
         Assert.Equal("Grüße aus München, schöne Größe", m.Body.Trim());
     }
+
+    /// <summary>Same structure as a real Outlook/Exchange message: windows-1251 encoded words, QP bodies, HTML meta.</summary>
+    [Fact]
+    public void Outlook_windows_1251_message_is_decoded()
+    {
+        var w = Encoding.GetEncoding(1251);
+        string Word(string s) => "=?windows-1251?B?" + Convert.ToBase64String(w.GetBytes(s)) + "?=";
+        string Qp(string s) => string.Concat(w.GetBytes(s).Select(b => b is >= 33 and <= 126 and not (byte)'=' || b == ' ' ? ((char)b).ToString() : $"={b:X2}"));
+        var eml = $"""
+            From: {Word("Петров Пётр Петрович")}
+            	<petrov@example.ru>
+            To: "ivanov@example.ru" <ivanov@example.ru>
+            CC: {Word("Сидоров Сидор")} <sidorov@example.ru>
+            Subject:
+            	{Word("Ответ на письма о мерах по повышению")}
+             {Word(" защищенности. ООО \"Пример\"")}
+            Content-Type: multipart/alternative;
+            	boundary="_000_b_"
+            MIME-Version: 1.0
+
+            --_000_b_
+            Content-Type: text/plain; charset="windows-1251"
+            Content-Transfer-Encoding: quoted-printable
+
+            {Qp("Сообщаю Вам, что ответ на Ваши письма №№ 195 направлен.")}
+
+            --_000_b_
+            Content-Type: text/html; charset="windows-1251"
+            Content-Transfer-Encoding: quoted-printable
+
+            <html><head><meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3Dwindows-1251"></head>
+            <body><p>{Qp("Сообщаю Вам, что ответ на Ваши письма №№ 195 направлен.")}</p></body></html>
+
+            --_000_b_--
+            """.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        var m = new MailMessage();
+        MimeMail.Fill(m, MimeMail.Parse(Encoding.ASCII.GetBytes(eml)), "x");
+        Assert.Equal("Петров Пётр Петрович", m.From!.Name);
+        Assert.Equal("Ответ на письма о мерах по повышению защищенности. ООО \"Пример\"", m.Subject);
+        Assert.Equal("Сидоров Сидор", m.Cc.Single().Name);
+        Assert.Contains("Сообщаю Вам, что ответ на Ваши письма №№ 195 направлен.", m.Body);
+    }
 }

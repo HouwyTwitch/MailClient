@@ -94,6 +94,33 @@ public class LocalCacheTests : IDisposable
     }
 
     [Fact]
+    public void Bodies_decoded_by_an_older_version_are_dropped_but_the_list_is_kept()
+    {
+        var cache = new LocalCache(_path);
+        cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Входящие" } });
+        cache.UpsertMessages(new[] { new MessageSummary { Id = "M", FolderId = "F", Subject = "Тема" } });
+        cache.SetSyncState("F", "S1");
+        cache.PutCachedMessage(new MailMessage { Id = "M", FolderId = "F", Subject = "Íàçàðîâ", Body = "Ñîîáùàþ" });
+        Assert.NotNull(cache.GetCachedMessage("M"));
+
+        // Simulate a cache written by a version with older decoding.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_path}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "PRAGMA application_id=0;";
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        var reopened = new LocalCache(_path);
+        Assert.Null(reopened.GetCachedMessage("M"));
+        Assert.Equal(1, reopened.CountMessages("F"));
+        Assert.Equal("S1", reopened.GetSyncState("F"));
+    }
+
+    [Fact]
     public void Messages_roundtrip_sorted_newest_first_with_search()
     {
         var cache = new LocalCache(_path);

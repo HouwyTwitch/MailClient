@@ -11,6 +11,13 @@ namespace MailClient.Core.Storage;
 public sealed class LocalCache
 {
     private const int SchemaVersion = 1;
+
+    /// <summary>
+    /// Version of the message decoding (MIME, charsets). Cached bodies are decoded copies: when decoding improves,
+    /// bump this so bodies opened with an older version (e.g. with mojibake) are dropped and re-read from the
+    /// server. Folders, the message list and sync states are kept.
+    /// </summary>
+    internal const int BodyFormatVersion = 2;
     private readonly string _connectionString;
     private static readonly JsonSerializerOptions JsonOptions = new() { IncludeFields = false };
 
@@ -64,6 +71,12 @@ public sealed class LocalCache
                 CREATE TABLE bodies(id TEXT PRIMARY KEY, json TEXT NOT NULL, cached_at INTEGER);
                 """);
             Exec(c, $"PRAGMA user_version={SchemaVersion};");
+        }
+        long bodyFormat = (long)(new SqliteCommand("PRAGMA application_id;", c).ExecuteScalar() ?? 0L);
+        if (bodyFormat != BodyFormatVersion)
+        {
+            Exec(c, "DELETE FROM bodies;");
+            Exec(c, $"PRAGMA application_id={BodyFormatVersion};");
         }
     }
 
