@@ -198,6 +198,8 @@ public sealed class EwsClient : IDisposable
                 MailLog.Warn?.Invoke($"EWS {name}: HTTP 401, сервер предлагает: {string.Join(", ", response.Headers.WwwAuthenticate.Select(h => h.Scheme))}");
                 throw new MailAuthenticationException(Http.ExchangeHttp.DescribeAuthFailure(response));
             }
+            if (response.StatusCode == HttpStatusCode.ProxyAuthenticationRequired)
+                throw new MailConnectionException(ProxyAuthenticationMessage(_endpoint.Host));
             if (response.StatusCode == HttpStatusCode.Forbidden)
                 throw new MailAuthenticationException("Доступ запрещён (HTTP 403). Возможно, для этого почтового ящика отключён доступ по EWS — обратитесь к администратору.");
             if ((int)response.StatusCode is >= 300 and < 400)
@@ -268,6 +270,12 @@ public sealed class EwsClient : IDisposable
             return (result, null, null);
         }
     }
+
+    /// <summary>Explanation for HTTP 407 from a corporate proxy that did not accept the Windows sign-in.</summary>
+    public static string ProxyAuthenticationMessage(string host) =>
+        $"Прокси-сервер организации не пропустил запрос к {host} (HTTP 407: требуется авторизация на прокси). " +
+        "Программа входит на прокси от имени пользователя Windows; если прокси этого не принимает, попросите администратора " +
+        "добавить адрес почтового сервера в исключения прокси (обычно внутренний сервер должен открываться напрямую).";
 
     /// <summary>Returns all response messages (elements carrying a ResponseClass attribute).</summary>
     public static IEnumerable<XElement> ResponseMessages(XElement response) =>
