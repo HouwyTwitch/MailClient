@@ -49,7 +49,7 @@ public static class ExchangeHttp
     /// <summary>
     /// Limits which challenge scheme the credentials answer. .NET tries Negotiate (Kerberos) first when the
     /// server offers it; if Kerberos is misconfigured for the host (load balancer, DNS alias, missing SPN) that
-    /// fails with 401 while plain NTLM — what Thunderbird uses — succeeds.
+    /// fails with 401 while plain NTLM succeeds.
     /// </summary>
     public static ICredentials RestrictScheme(NetworkCredential credential, HttpAuthScheme scheme) => scheme switch
     {
@@ -60,8 +60,8 @@ public static class ExchangeHttp
     };
 
     /// <summary>
-    /// Credentials the way Thunderbird hands them to Firefox's network stack (nsHttpNTLMAuth / nsAuthSSPI):
-    /// NTLM answers only the plain "NTLM" challenge, never Negotiate/Kerberos; an empty password means
+    /// Credentials for the account: NTLM answers only the plain "NTLM" challenge, never Negotiate/Kerberos
+    /// (which fails wherever Kerberos is misconfigured for the host); an empty password means
     /// "sign in as the logged-on Windows user" (SSPI default credentials); "DOMAIN\user" is split into
     /// domain and user, "user@domain" is sent as is.
     /// </summary>
@@ -81,8 +81,8 @@ public static class ExchangeHttp
             Timeout = TimeSpan.FromMinutes(10),
         };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MailClient", "0.1"));
-        // Like Thunderbird, send no routing hints to on-premises Exchange; X-AnchorMailbox is only needed for
-        // OAuth against Exchange Online.
+        // No routing hints for on-premises Exchange (some proxies reject unknown anchors); X-AnchorMailbox is
+        // only needed for OAuth against Exchange Online.
         if (account.AuthMethod == AuthMethod.OAuth2)
             client.DefaultRequestHeaders.Add("X-AnchorMailbox", string.IsNullOrWhiteSpace(account.SharedMailbox) ? account.EmailAddress : account.SharedMailbox);
         return client;

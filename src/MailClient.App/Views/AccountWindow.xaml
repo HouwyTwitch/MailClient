@@ -37,7 +37,7 @@
                 <StackPanel x:Name="AuthPanel">
                     <TextBlock Text="Аутентификация" Style="{StaticResource FieldLabel}"/>
                     <ComboBox x:Name="AuthCombo" SelectionChanged="AuthCombo_SelectionChanged">
-                        <ComboBoxItem Content="NTLM — как в Thunderbird (рекомендуется)" Tag="Ntlm"/>
+                        <ComboBoxItem Content="NTLM (рекомендуется)" Tag="Ntlm"/>
                         <ComboBoxItem Content="Обычный пароль (Basic)" Tag="Basic"/>
                         <ComboBoxItem Content="Kerberos (Negotiate)" Tag="Negotiate"/>
                         <ComboBoxItem Content="Автоматически (Kerberos → NTLM → Basic)" Tag="Auto"/>
@@ -49,7 +49,7 @@
                 <StackPanel x:Name="PasswordPanel">
                     <TextBlock Text="Имя пользователя" Style="{StaticResource FieldLabel}"/>
                     <TextBox x:Name="UserBox" ToolTip="Например: ДОМЕН\ivanov, ivanov@corp.local или адрес почты"/>
-                    <TextBlock x:Name="UserHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap" Text="Логин Windows (ДОМЕН\логин или логин@домен). Он может отличаться от адреса почты — вводите так же, как в Thunderbird."/>
+                    <TextBlock x:Name="UserHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap" Text="Логин Windows (ДОМЕН\логин или логин@домен). Он может отличаться от адреса почты."/>
                     <TextBlock Text="Пароль" Style="{StaticResource FieldLabel}"/>
                     <PasswordBox x:Name="PasswordBox"/>
                     <DockPanel Margin="0,3,0,0">

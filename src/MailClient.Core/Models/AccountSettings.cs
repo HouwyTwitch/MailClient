@@ -15,7 +15,7 @@ public enum HttpAuthScheme
 {
     /// <summary>Whatever the server offers, in .NET order: Negotiate (Kerberos), NTLM, Basic.</summary>
     Auto,
-    /// <summary>NTLM only — what Thunderbird and many other clients use; works when Kerberos is misconfigured.</summary>
+    /// <summary>NTLM only: works with any on-premises Exchange, also where Kerberos is misconfigured.</summary>
     Ntlm,
     /// <summary>Negotiate (Kerberos with NTLM fallback).</summary>
     Negotiate,
@@ -61,7 +61,7 @@ public sealed class AccountSettings
 
     public AuthMethod AuthMethod { get; set; } = AuthMethod.Password;
 
-    /// <summary>Which HTTP authentication scheme to use with Exchange. NTLM by default, as in Thunderbird.</summary>
+    /// <summary>Which HTTP authentication scheme to use with Exchange. NTLM by default (see <see cref="HttpAuthScheme.Ntlm"/>).</summary>
     public HttpAuthScheme AuthScheme { get; set; } = HttpAuthScheme.Ntlm;
 
     /// <summary>Login name: user@domain (UPN), DOMAIN\user or just user (with <see cref="Domain"/>).</summary>

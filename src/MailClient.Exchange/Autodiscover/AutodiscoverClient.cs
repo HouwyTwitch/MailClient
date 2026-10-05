@@ -18,7 +18,7 @@ public sealed class AutodiscoverResult
 }
 
 /// <summary>
-/// Exchange "POX" Autodiscover (autodiscover.xml), as used by Outlook and Evolution, to find the EWS URL
+/// Exchange "POX" Autodiscover (autodiscover.xml), the method Outlook uses, to find the EWS URL
 /// from an e-mail address. Tries the standard endpoints and follows redirectAddr/redirectUrl and the
 /// HTTP-redirect method (only to HTTPS targets).
 /// </summary>
@@ -71,7 +71,7 @@ public sealed class AutodiscoverClient
             {
                 var outcome = await TryEndpointAsync(client, url, email, 0, ct).ConfigureAwait(false);
                 if (outcome.Result != null) return outcome.Result;
-                // Like Thunderbird: one login attempt. Once a server has rejected our credentials, they are not sent
+                // One login attempt: once a server has rejected our credentials, they are not sent
                 // to further addresses — repeated failed logins lock the domain account.
                 if (outcome.LoginRejected) throw new MailAuthenticationException(LastAuthFailure!);
                 if (outcome.RedirectAddress != null)

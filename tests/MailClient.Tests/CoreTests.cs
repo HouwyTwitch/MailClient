@@ -184,7 +184,7 @@ public class SyncEngineTests : IDisposable
 
     private static readonly Dictionary<string, string> Store = new();
 
-    /// <summary>SyncFolderItems carries ids only; the full item is served by GetItem (Thunderbird's flow).</summary>
+    /// <summary>SyncFolderItems carries ids only; the full item is served by GetItem.</summary>
     private static string Item(string id, bool read)
     {
         lock (Store)

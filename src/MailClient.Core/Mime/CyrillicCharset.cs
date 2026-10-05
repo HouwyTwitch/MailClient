@@ -4,8 +4,8 @@ namespace MailClient.Core.Mime;
 
 /// <summary>
 /// Statistical detection of the single-byte Russian charsets (windows-1251, KOI8-R, KOI8-U, CP866, ISO-8859-5,
-/// x-mac-cyrillic) for text that carries no usable charset label — what Thunderbird's charset detector does for
-/// Russian mail. A correct decoding yields mostly lowercase Cyrillic with frequent Russian letters; a wrong one
+/// x-mac-cyrillic) for text that carries no usable charset label, common in mail from older Russian systems.
+/// A correct decoding yields mostly lowercase Cyrillic with frequent Russian letters; a wrong one
 /// yields capitals inside words ("йЧБОПЧ"), pseudo-graphics or Latin accented letters.
 /// </summary>
 public static class CyrillicCharset

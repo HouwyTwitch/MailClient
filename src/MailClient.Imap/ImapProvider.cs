@@ -92,7 +92,7 @@ public sealed class ImapProvider : IMailProvider
         if (client is SmtpClient smtp && !smtp.Capabilities.HasFlag(SmtpCapabilities.Authentication)) return;
         try
         {
-            // Like Thunderbird's "normal password": a single attempt with one method (AUTH PLAIN, else AUTH LOGIN,
+            // A single attempt with one method (AUTH PLAIN, else AUTH LOGIN,
             // else the IMAP LOGIN command). MailKit's default would try every mechanism in turn after a rejection,
             // and repeated failed logins lock the account.
             var credential = Credential();

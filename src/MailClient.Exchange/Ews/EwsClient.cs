@@ -38,8 +38,8 @@ public sealed class EwsResponseException : MailServiceException
 
 /// <summary>
 /// Low-level EWS SOAP transport: wraps operations in an envelope, posts them, handles SOAP faults, HTTP
-/// errors and server throttling. Modelled on Thunderbird's operation sender: a limited number of requests
-/// in flight per account, one shared back-off for everybody when the server throttles (ErrorServerBusy),
+/// errors and server throttling: a limited number of requests in flight per account (Exchange throttles
+/// clients that open many parallel connections), one shared back-off for everybody when the server throttles (ErrorServerBusy),
 /// and transparent retries of read-only operations when a connection drops (proxies and load balancers
 /// in front of Exchange routinely close idle or long-running connections).
 /// </summary>
@@ -120,7 +120,7 @@ public sealed class EwsClient : IDisposable
             {
                 if (busyRetries++ >= _maxRetries)
                     throw new EwsResponseException("ErrorServerBusy", "Server busy");
-                // Like Thunderbird: one shared pause for all requests of this account, not a stampede of retries.
+                // One shared pause for all requests of this account, not a stampede of retries.
                 PauseAll(backoff);
                 MailLog.Warn?.Invoke($"EWS {name}: сервер ограничивает частоту запросов (ErrorServerBusy), пауза {backoff.TotalSeconds:0.#} с");
                 continue;
@@ -246,7 +246,7 @@ public sealed class EwsClient : IDisposable
             var result = body.Elements().FirstOrDefault()
                 ?? throw new MailServiceException("Некорректный ответ сервера (пустое тело SOAP).");
 
-            // Throttling can also surface as a response message error; like Thunderbird, honour the
+            // Throttling can also surface as a response message error; honour the
             // BackOffMilliseconds the server puts into MessageXml. When only part of a batch was throttled the
             // rest has already been executed, so only idempotent operations may be repeated as a whole.
             var codes = result.Descendants(M + "ResponseCode").ToList();

@@ -9,8 +9,10 @@ using MailClient.Exchange.Ews;
 namespace MailClient.Tests;
 
 /// <summary>
-/// Fake EWS endpoint: records requests, validates each operation against the official EWS
-/// schema (messages.xsd/types.xsd) and replies with canned responses keyed by operation name.
+/// Fake EWS endpoint: records requests, checks each operation and SOAP header against EwsRequestRules.txt
+/// and replies with canned responses keyed by operation name. When EWS_SCHEMA_DIR points to a folder with the
+/// server's own messages.xsd/types.xsd (served by every Exchange at /EWS/messages.xsd), requests are also
+/// validated against that schema.
 /// </summary>
 internal sealed class FakeEws : HttpMessageHandler
 {
@@ -18,10 +20,13 @@ internal sealed class FakeEws : HttpMessageHandler
     public static readonly XNamespace T = "http://schemas.microsoft.com/exchange/services/2006/types";
     public static readonly XNamespace M = "http://schemas.microsoft.com/exchange/services/2006/messages";
 
-    private static readonly Lazy<XmlSchemaSet> Schemas = new(() =>
+    private static readonly Lazy<EwsRequestValidator> Rules = new(EwsRequestValidator.Load);
+
+    private static readonly Lazy<XmlSchemaSet?> ServerSchema = new(() =>
     {
+        var dir = Environment.GetEnvironmentVariable("EWS_SCHEMA_DIR");
+        if (string.IsNullOrEmpty(dir) || !File.Exists(Path.Combine(dir, "messages.xsd"))) return null;
         var set = new XmlSchemaSet { XmlResolver = new XmlUrlResolver() };
-        var dir = Path.Combine(AppContext.BaseDirectory, "Schemas");
         set.Add(null, Path.Combine(dir, "messages.xsd"));
         set.Compile();
         return set;
@@ -82,6 +87,7 @@ internal sealed class FakeEws : HttpMessageHandler
         var op = doc.Root!.Element(Soap + "Body")!.Elements().First();
         Requests.Add(op);
         Validate(op);
+        foreach (var header in doc.Root.Element(Soap + "Header")?.Elements() ?? []) Validate(header);
 
         if (!_responders.TryGetValue(op.Name.LocalName, out var q) || q.Count == 0)
             throw new InvalidOperationException($"No canned response for {op.Name.LocalName}");
@@ -89,10 +95,11 @@ internal sealed class FakeEws : HttpMessageHandler
         return responder(op);
     }
 
-    private void Validate(XElement op)
+    private void Validate(XElement element)
     {
-        var doc = new XDocument(new XElement(op));
-        doc.Validate(Schemas.Value, (_, e) => ValidationErrors.Add($"{op.Name.LocalName}: {e.Message}"));
+        ValidationErrors.AddRange(Rules.Value.Validate(element).Select(e => $"{element.Name.LocalName}: {e}"));
+        if (ServerSchema.Value is { } schema)
+            new XDocument(new XElement(element)).Validate(schema, (_, e) => ValidationErrors.Add($"{element.Name.LocalName} (XSD): {e.Message}"));
     }
 
     public static string Envelope(string body) =>

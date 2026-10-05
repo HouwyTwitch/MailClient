@@ -4,9 +4,9 @@ using MailClient.Core.Storage;
 namespace MailClient.Core.Services;
 
 /// <summary>
-/// Keeps the local cache in step with the server using incremental (sync-state based) synchronization,
-/// in the spirit of Evolution's EWS backend: the folder tree is refreshed, and each folder is synced with
-/// SyncFolderItems so only changes travel over the wire.
+/// Keeps the local cache in step with the server using incremental (sync-state based) synchronization:
+/// the folder tree is refreshed, and each folder is synced with SyncFolderItems (IMAP: UIDs and CONDSTORE)
+/// so only changes travel over the wire.
 /// </summary>
 public sealed class SyncEngine
 {

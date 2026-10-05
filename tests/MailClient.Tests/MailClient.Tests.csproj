@@ -16,6 +16,6 @@
     <ProjectReference Include="..\..\src\MailClient.Imap\MailClient.Imap.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Schemas\*.xsd" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="EwsRequestRules.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -11,7 +11,7 @@ namespace MailClient.Exchange.Ews;
 
 /// <summary>
 /// <see cref="IMailProvider"/> implementation for Microsoft Exchange Server (2010 SP2 → Subscription Edition)
-/// using Exchange Web Services — the same protocol Evolution's evolution-ews backend uses.
+/// using Exchange Web Services (EWS), the protocol for on-premises Exchange 2010 SP2 – Subscription Edition.
 /// </summary>
 public sealed class ExchangeProvider : IMailProvider
 {
@@ -123,8 +123,8 @@ public sealed class ExchangeProvider : IMailProvider
     // ===================================================================== connect
 
     /// <summary>
-    /// Connectivity check exactly as Thunderbird does it: GetFolder for the mailbox root (IdOnly), sent with
-    /// the conservative Exchange2007_SP1 schema version so that any Exchange server accepts it. The server's
+    /// Connectivity check: GetFolder for the mailbox root (IdOnly), sent with the conservative Exchange2007_SP1
+    /// schema version so that any Exchange server accepts it whatever version it runs. The server's
     /// real version comes back in the ServerVersionInfo header (see <see cref="SuggestVersion"/>).
     /// </summary>
     public async Task<MailboxInfo> ConnectAsync(CancellationToken ct = default)
@@ -145,13 +145,13 @@ public sealed class ExchangeProvider : IMailProvider
     // ===================================================================== folders
 
     /// <summary>
-    /// Well-known folders resolved first, as Thunderbird does (rust/protocol_shared EXCHANGE_DISTINGUISHED_IDS).
+    /// Well-known folders, resolved before the tree so they can be recognised (Inbox, Sent…) whatever their names.
     /// "archive" is left out: it is not in the Exchange 2016 schema and older servers reject the whole request.
     /// </summary>
     private static readonly string[] WellKnownNames =
         { "msgfolderroot", "inbox", "deleteditems", "drafts", "outbox", "sentitems", "junkemail" };
 
-    /// <summary>Microsoft's recommended batch size for GetFolder/GetItem (also used by Thunderbird).</summary>
+    /// <summary>Microsoft's recommended batch size for GetFolder/GetItem: small responses survive proxies.</summary>
     private const int BatchSize = 10;
 
     private string? _hierarchySyncState;
@@ -159,10 +159,9 @@ public sealed class ExchangeProvider : IMailProvider
     private MailFolder? _root;
 
     /// <summary>
-    /// Folder tree, synchronized the way Thunderbird does it (ews_xpcom sync_folder_hierarchy.rs):
-    /// 1) GetFolder IdOnly for the well-known folders; 2) SyncFolderHierarchy (IdOnly) from msgfolderroot with
-    /// the previous sync state, so later calls only transfer changes; 3) GetFolder AllProperties for created or
-    /// updated folders in batches of 10. Only plain (mail) folders are kept, as in Thunderbird.
+    /// Folder tree: 1) GetFolder IdOnly for the well-known folders; 2) SyncFolderHierarchy (IdOnly) from
+    /// msgfolderroot with the previous sync state, so later calls only transfer changes; 3) GetFolder
+    /// AllProperties for created or updated folders in batches of 10. Only mail folders are kept.
     /// </summary>
     public async Task<IReadOnlyList<MailFolder>> GetFoldersAsync(CancellationToken ct = default)
     {
@@ -198,7 +197,7 @@ public sealed class ExchangeProvider : IMailProvider
                     if ((string?)change.Element(T + "FolderId")?.Attribute("Id") is { } gone) deleted.Add(gone);
                     continue;
                 }
-                // Like Thunderbird, only plain folders (mail); calendar/contacts/tasks/search folders are skipped.
+                // Only mail folders: calendar, contacts, tasks and search folders are not shown.
                 var folder = change.Element(T + "Folder");
                 if ((string?)folder?.Element(T + "FolderId")?.Attribute("Id") is not { } id) continue;
                 if (change.Name.LocalName == "Create") created.Add(id);
@@ -258,7 +257,7 @@ public sealed class ExchangeProvider : IMailProvider
         var messages = EwsClient.ResponseMessages(response).ToList();
         if (messages.Count != WellKnownNames.Length)
             throw new MailServiceException("Сервер вернул неожиданное число ответов на запрос стандартных папок.");
-        // Any error on the root folder is fatal (Thunderbird does the same); others are optional.
+        // Without the root folder the tree cannot be built, so its error is fatal; the others are optional.
         EwsClient.ThrowIfError(messages[0]);
         for (int i = 0; i < messages.Count; i++)
         {
@@ -278,7 +277,7 @@ public sealed class ExchangeProvider : IMailProvider
         _folders.Clear();
     }
 
-    /// <summary>create_folder.rs: a plain mail folder (IPF.Note).</summary>
+    /// <summary>Creates a mail folder (IPF.Note).</summary>
     public async Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, CancellationToken ct = default)
     {
         var request = new XElement(M + "CreateFolder",
@@ -323,7 +322,7 @@ public sealed class ExchangeProvider : IMailProvider
 
     /// <summary>
     /// Deleting a folder moves it to Deleted Items (MoveFolder); deleting it from there is permanent
-    /// (erase_folder.rs: DeleteFolder with HardDelete).
+    /// (DeleteFolder with HardDelete).
     /// </summary>
     public async Task DeleteFolderAsync(string folderId, bool permanent, CancellationToken ct = default)
     {
@@ -339,7 +338,7 @@ public sealed class ExchangeProvider : IMailProvider
     }
 
     /// <summary>
-    /// Emptying Deleted Items / Junk is permanent (erase_folder.rs: EmptyFolder HardDelete with subfolders);
+    /// Emptying Deleted Items / Junk is permanent (EmptyFolder with HardDelete, subfolders included);
     /// emptying any other folder moves its messages to Deleted Items.
     /// </summary>
     public async Task EmptyFolderAsync(string folderId, bool deleteSubFolders, CancellationToken ct = default)
@@ -387,8 +386,8 @@ public sealed class ExchangeProvider : IMailProvider
     }
 
     /// <summary>
-    /// Message headers for the given ids, fetched like Thunderbird (ews_xpcom client.rs get_items): GetItem with
-    /// IdOnly + explicit AdditionalProperties, 10 ids per request. Items deleted in the meantime are skipped.
+    /// Message headers for the given ids: GetItem with IdOnly + explicit AdditionalProperties (only what the list
+    /// shows), 10 ids per request. Items deleted in the meantime are skipped.
     /// </summary>
     private async Task<List<MessageSummary>> GetSummariesAsync(IEnumerable<string> itemIds, string folderId, CancellationToken ct)
     {
@@ -450,9 +449,8 @@ public sealed class ExchangeProvider : IMailProvider
     }
 
     /// <summary>
-    /// Incremental item sync as in Thunderbird (ews_xpcom sync_messages_for_folder.rs): SyncFolderItems with
-    /// IdOnly — Microsoft's guidance, and the server silently drops some properties in sync responses — then the
-    /// headers of created/updated items via GetItem in batches of 10.
+    /// Incremental item sync: SyncFolderItems with IdOnly — Microsoft's guidance, and the server silently drops
+    /// some properties in sync responses — then the headers of created/updated items via GetItem in batches of 10.
     /// </summary>
     public async Task<FolderSyncResult> SyncFolderItemsAsync(string folderId, string? syncState, int maxChanges, CancellationToken ct = default)
     {
@@ -470,7 +468,7 @@ public sealed class ExchangeProvider : IMailProvider
             SyncState = msg.Element(M + "SyncState")?.Value ?? "",
             IncludesLastItem = ParseBool(msg.Element(M + "IncludesLastItemInRange")?.Value),
         };
-        // Changes come in chronological order (sync_messages_for_folder.rs); the last one per item wins.
+        // Changes come in chronological order; the last one per item wins.
         // Created/updated items are fetched afterwards, so their fetched state supersedes earlier read-flag changes.
         var toFetch = new List<string>();
         var created = new HashSet<string>();
@@ -513,10 +511,9 @@ public sealed class ExchangeProvider : IMailProvider
     }
 
     // ===================================================================== single items
-    // Ported from Thunderbird (comm-central rust/ews_xpcom/src/client/*.rs). Messages travel as MIME: read with
-    // GetItem + IncludeMimeContent and parsed locally (get_message.rs); composed locally and sent with
-    // CreateItem SendOnly (send_message.rs); drafts/imports stored with CreateItem SaveOnly + PR_MESSAGE_FLAGS
-    // (create_message.rs).
+    // Messages travel as MIME: read with GetItem + IncludeMimeContent and parsed locally; composed locally and
+    // sent with CreateItem SendOnly; drafts and imports stored with CreateItem SaveOnly + PR_MESSAGE_FLAGS.
+    // One MIME pipeline serves Exchange and IMAP alike.
 
     /// <summary>Small MIME cache: opening a message, showing inline images and saving attachments reuse one download.</summary>
     private readonly LinkedList<(string id, byte[] mime)> _mimeCache = new();
@@ -542,8 +539,8 @@ public sealed class ExchangeProvider : IMailProvider
         MimeMail.Parse(await GetMimeContentAsync(itemId, ct).ConfigureAwait(false));
 
     /// <summary>
-    /// Thunderbird's get_message.rs: GetItem IdOnly with IncludeMimeContent. We also request the list properties
-    /// (read state, flag, item class…) in the same call, so the reading pane shows the server's current state.
+    /// GetItem IdOnly with IncludeMimeContent, plus the list properties (read state, flag, item class…) in the
+    /// same call, so the reading pane shows the server's current state.
     /// </summary>
     public async Task<MailMessage> GetMessageAsync(string itemId, CancellationToken ct = default)
     {
@@ -679,7 +676,7 @@ public sealed class ExchangeProvider : IMailProvider
         (await GetAttachmentsAsync(new[] { attachmentId }, ct).ConfigureAwait(false))[0];
 
     /// <summary>
-    /// Attachments are MIME parts of the message (as in Thunderbird). Ids of the older EWS-attachment form,
+    /// Attachments are MIME parts of the message (no extra download). Ids of the older EWS-attachment form,
     /// still present in locally cached messages, are served with GetAttachment.
     /// </summary>
     public async Task<IReadOnlyList<AttachmentContent>> GetAttachmentsAsync(IEnumerable<string> attachmentIds, CancellationToken ct = default)
@@ -715,8 +712,7 @@ public sealed class ExchangeProvider : IMailProvider
     // ===================================================================== item updates
 
     /// <summary>
-    /// UpdateItem as Thunderbird sends it (change_read_status.rs, change_flag_status.rs): no ChangeKey and
-    /// ConflictResolution=AlwaysOverwrite. AutoResolve without a ChangeKey is rejected by Exchange
+    /// UpdateItem without a ChangeKey and with ConflictResolution=AlwaysOverwrite: the user's last action wins. AutoResolve without a ChangeKey is rejected by Exchange
     /// (ErrorChangeKeyRequiredForWriteOperations) — the "cannot mark as read" error.
     /// </summary>
     private async Task UpdateItemsAsync(IEnumerable<string> itemIds, Func<XElement[]> updates, CancellationToken ct)
@@ -729,7 +725,7 @@ public sealed class ExchangeProvider : IMailProvider
                     new XElement(T + "ItemChange", ItemId(id), new XElement(T + "Updates", updates())))));
             request.Add(new XAttribute("MessageDisposition", "SaveOnly"));
             var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
-            // Items deleted meanwhile are not an error for the user (Thunderbird logs and continues).
+            // Items deleted meanwhile are not an error for the user: logged, the rest is applied.
             EwsClient.ThrowOnError(response, "ErrorItemNotFound");
         }
     }
@@ -742,7 +738,7 @@ public sealed class ExchangeProvider : IMailProvider
         }, ct);
 
     /// <summary>
-    /// change_flag_status.rs: sets both item:Flag and PR_FLAG_STATUS (2 = flagged, 0 = not flagged) in one change,
+    /// Sets both item:Flag and PR_FLAG_STATUS (2 = flagged, 0 = not flagged) in one change,
     /// so Outlook and older clients agree. Exchange 2010 has no item:Flag, only the MAPI property.
     /// </summary>
     public Task SetFlagAsync(IEnumerable<string> itemIds, FlagStatus flag, CancellationToken ct = default)
@@ -777,7 +773,7 @@ public sealed class ExchangeProvider : IMailProvider
     }
 
     /// <summary>
-    /// change_read_status_all.rs: MarkAllItemsAsRead (Exchange 2013+) with SuppressReadReceipts.
+    /// MarkAllItemsAsRead (Exchange 2013+) with SuppressReadReceipts: one call for the whole folder.
     /// Returns false on older servers so the caller marks items one by one.
     /// </summary>
     public async Task<bool> MarkAllReadAsync(string folderId, bool isRead, CancellationToken ct = default)
@@ -791,7 +787,7 @@ public sealed class ExchangeProvider : IMailProvider
         return true;
     }
 
-    /// <summary>mark_as_junk.rs: MarkAsJunk with MoveItem (Exchange 2013+), otherwise a plain move.</summary>
+    /// <summary>MarkAsJunk with MoveItem (Exchange 2013+, also trains the junk filter), otherwise a plain move.</summary>
     public async Task<IReadOnlyList<string?>> MarkAsJunkAsync(IEnumerable<string> itemIds, bool isJunk, CancellationToken ct = default)
     {
         var ids = itemIds.ToList();
@@ -815,7 +811,7 @@ public sealed class ExchangeProvider : IMailProvider
     public Task<IReadOnlyList<string?>> CopyItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default) =>
         MoveOrCopyAsync("CopyItem", itemIds, destinationFolderId, ct);
 
-    /// <summary>copy_move_item.rs: ReturnNewItemIds on servers newer than Exchange 2010.</summary>
+    /// <summary>MoveItem/CopyItem; ReturnNewItemIds on servers newer than Exchange 2010.</summary>
     private async Task<IReadOnlyList<string?>> MoveOrCopyAsync(string op, IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct)
     {
         var result = new List<string?>();
@@ -834,8 +830,8 @@ public sealed class ExchangeProvider : IMailProvider
     }
 
     /// <summary>
-    /// Thunderbird moves deleted messages to Deleted Items with MoveItem and only hard-deletes from there
-    /// (delete_messages.rs: HardDelete in batches of 1000, ErrorItemNotFound ignored).
+    /// Deleted messages are moved to Deleted Items with MoveItem; from there they are removed for good
+    /// (HardDelete in batches of 1000; items already gone are not an error).
     /// </summary>
     public async Task DeleteItemsAsync(IEnumerable<string> itemIds, bool permanent, CancellationToken ct = default)
     {
@@ -864,9 +860,9 @@ public sealed class ExchangeProvider : IMailProvider
         MimeMail.BuildAsync(message, Author, LoadMimeMessageAsync, ct);
 
     /// <summary>
-    /// send_message.rs: CreateItem with the MIME content and MessageDisposition=SendOnly; Bcc recipients are
-    /// passed as BccRecipients (they are not in the transmitted MIME). Like Thunderbird's "copy to Sent",
-    /// the message is then stored in Sent Items with CreateItem SaveOnly.
+    /// CreateItem with the MIME content and MessageDisposition=SendOnly; Bcc recipients are passed as
+    /// BccRecipients (they are not in the transmitted MIME). The exact sent MIME (with Bcc) is then stored in
+    /// Sent Items with CreateItem SaveOnly.
     /// </summary>
     public async Task SendAsync(OutgoingMessage message, CancellationToken ct = default)
     {
@@ -905,7 +901,7 @@ public sealed class ExchangeProvider : IMailProvider
         }
     }
 
-    /// <summary>create_message.rs: CreateItem SaveOnly with MIME, IsRead and PR_MESSAGE_FLAGS.</summary>
+    /// <summary>CreateItem SaveOnly with MIME, IsRead and PR_MESSAGE_FLAGS.</summary>
     private async Task<string> CreateMimeItemAsync(string folderId, byte[] mime, int mapiFlags, bool isRead, CancellationToken ct)
     {
         var request = new XElement(M + "CreateItem",
@@ -923,7 +919,7 @@ public sealed class ExchangeProvider : IMailProvider
         return (string?)response.Descendants(T + "ItemId").FirstOrDefault()?.Attribute("Id") ?? "";
     }
 
-    /// <summary>Drafts: MIME in Drafts with READ|UNSENT (create_message.rs with is_draft).</summary>
+    /// <summary>Drafts: MIME in Drafts with READ|UNSENT, so Outlook shows them as editable drafts.</summary>
     public async Task<string> SaveDraftAsync(OutgoingMessage message, CancellationToken ct = default)
     {
         var mime = await BuildMimeAsync(message, ct).ConfigureAwait(false);
@@ -934,7 +930,7 @@ public sealed class ExchangeProvider : IMailProvider
         return id;
     }
 
-    /// <summary>Import (.eml): stored as a regular read message (READ|UNMODIFIED), as Thunderbird does.</summary>
+    /// <summary>Import (.eml): stored as a regular read message (READ|UNMODIFIED), not as a draft.</summary>
     public Task<string> ImportMimeAsync(string folderId, byte[] mime, CancellationToken ct = default) =>
         CreateMimeItemAsync(folderId, mime, MimeMail.MsgFlagRead | MimeMail.MsgFlagUnmodified, isRead: true, ct);
 

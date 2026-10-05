@@ -9,9 +9,9 @@ using static MailClient.Tests.FakeEws;
 namespace MailClient.Tests;
 
 /// <summary>
-/// The EWS sign-in follows Thunderbird (comm-central rust/protocol_shared + Firefox nsHttpNTLMAuth/nsAuthSSPI).
+/// Exchange sign-in: NTLM only, an empty password means the logged-on Windows user, one connectivity request.
 /// </summary>
-public class ThunderbirdCompatTests
+public class ExchangeSignInTests
 {
     private static readonly Uri Ews = new("https://mail.company.ru/EWS/Exchange.asmx");
 
@@ -31,7 +31,7 @@ public class ThunderbirdCompatTests
     }
 
     [Fact]
-    public void Password_with_domain_login_is_split_like_thunderbird()
+    public void Password_with_domain_login_is_split_into_domain_and_user()
     {
         var account = new AccountSettings { UserName = "CORP\\ivanov", AuthScheme = HttpAuthScheme.Ntlm };
         var c = ExchangeHttp.BuildCredentials(account, "Пароль").GetCredential(Ews, "NTLM")!;
@@ -64,7 +64,7 @@ public class ThunderbirdCompatTests
     }
 
     [Fact]
-    public async Task Connectivity_check_matches_thunderbird()
+    public async Task Connectivity_check_is_one_root_getfolder_with_conservative_version()
     {
         var fake = new FakeEws().On("GetFolder", Response("GetFolder", Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"ROOT\"/></t:Folder></m:Folders>")));
         using var p = fake.CreateProvider();

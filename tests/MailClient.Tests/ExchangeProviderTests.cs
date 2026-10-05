@@ -35,7 +35,7 @@ public class ExchangeProviderTests
         $"<m:RootFolder TotalItemsInView=\"{total}\" IncludesLastItemInRange=\"{(last ? "true" : "false")}\"><t:Items>{items}</t:Items></m:RootFolder>";
 
     [Fact]
-    public async Task GetMessages_finds_ids_then_fetches_headers_like_thunderbird()
+    public async Task GetMessages_finds_ids_then_fetches_headers()
     {
         var fake = new FakeEws()
             .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(IdOnly("AAA="), last: false, total: 120))))
@@ -103,7 +103,7 @@ public class ExchangeProviderTests
         Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"JUNK\"/></t:Folder></m:Folders>"));
 
     [Fact]
-    public async Task GetFolders_follows_thunderbird_hierarchy_sync()
+    public async Task GetFolders_uses_incremental_hierarchy_sync()
     {
         var details = new Dictionary<string, string>
         {
@@ -130,7 +130,7 @@ public class ExchangeProviderTests
 
         Assert.Empty(fake.ValidationErrors);
         var getFolders = fake.All("GetFolder").ToList();
-        // Well-known folders: IdOnly, the Thunderbird list.
+        // Well-known folders: IdOnly, the distinguished folders the client recognises.
         Assert.Equal("IdOnly", getFolders[0].Descendants(T + "BaseShape").Single().Value);
         Assert.Equal(new[] { "msgfolderroot", "inbox", "deleteditems", "drafts", "outbox", "sentitems", "junkemail" },
             getFolders[0].Descendants(T + "DistinguishedFolderId").Select(e => e.Attribute("Id")!.Value));
@@ -480,7 +480,7 @@ public class ExchangeProviderTests
     }
 
     [Fact]
-    public async Task Folder_operations_follow_thunderbird()
+    public async Task Folder_operations_move_to_deleted_items_then_delete_for_good()
     {
         var fake = new FakeEws()
             .On("CreateFolder", Response("CreateFolder", Success("CreateFolder", "<m:Folders><t:Folder><t:FolderId Id=\"NEWF\" ChangeKey=\"K\"/></t:Folder></m:Folders>")))
@@ -499,7 +499,7 @@ public class ExchangeProviderTests
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal("NEWF", f.Id);
         Assert.Equal("IPF.Note", fake.Last("CreateFolder").Descendants(T + "FolderClass").Single().Value);
-        // Not permanent: moved to Deleted Items; permanent: HardDelete (erase_folder.rs).
+        // Not permanent: moved to Deleted Items; permanent: HardDelete.
         Assert.Equal("deleteditems", fake.Last("MoveFolder").Element(M + "ToFolderId")!.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
         Assert.Equal("HardDelete", fake.Last("DeleteFolder").Attribute("DeleteType")!.Value);
         var empty = fake.Last("EmptyFolder");
@@ -507,7 +507,7 @@ public class ExchangeProviderTests
         Assert.Equal("true", empty.Attribute("DeleteSubFolders")!.Value);
     }
 
-    // ------------------------------------------------------------------ MIME-based messages (Thunderbird)
+    // ------------------------------------------------------------------ MIME-based messages
 
     private static byte[] Mime(string subject, string html, string? attachment = null, string? messageId = null)
     {
@@ -536,7 +536,7 @@ public class ExchangeProviderTests
         MimeKit.MimeMessage.Load(new MemoryStream(Convert.FromBase64String(createItem.Descendants(T + "MimeContent").Single().Value)));
 
     [Fact]
-    public async Task GetMessage_reads_mime_like_thunderbird_and_serves_attachments_from_it()
+    public async Task GetMessage_reads_mime_and_serves_attachments_from_it()
     {
         var fake = new FakeEws().ServeItems(new Dictionary<string, string>
         {
@@ -568,6 +568,35 @@ public class ExchangeProviderTests
         Assert.Equal(before, fake.Requests.Count);
         Assert.Equal("данные", System.Text.Encoding.UTF8.GetString(content[0].Content));
         Assert.Equal(new byte[] { 137, 80, 78, 71 }, content[1].Content);
+    }
+
+    [Fact]
+    public async Task Meeting_request_details_are_read_with_the_local_time_zone()
+    {
+        var mime = Convert.ToBase64String(Mime("Планёрка", "<p>Приглашение</p>"));
+        var fake = new FakeEws().ServeItems(new Dictionary<string, string>
+        {
+            ["MR1"] = $"""
+                <t:MeetingRequest><t:MimeContent CharacterSet="UTF-8">{mime}</t:MimeContent><t:ItemId Id="MR1"/>
+                  <t:Subject>Планёрка</t:Subject><t:ItemClass>IPM.Schedule.Meeting.Request</t:ItemClass>
+                  <t:Start>2026-10-06T07:00:00Z</t:Start><t:End>2026-10-06T07:30:00Z</t:End><t:IsAllDayEvent>false</t:IsAllDayEvent>
+                  <t:Location>Переговорная 3</t:Location><t:MyResponseType>NoResponseReceived</t:MyResponseType>
+                  <t:Organizer><t:Mailbox><t:Name>Петров Пётр</t:Name><t:EmailAddress>petrov@contoso.ru</t:EmailAddress></t:Mailbox></t:Organizer>
+                </t:MeetingRequest>
+                """,
+        });
+        using var p = fake.CreateProvider();
+
+        var m = await p.GetMessageAsync("MR1", TestContext.Current.CancellationToken);
+
+        Assert.Empty(fake.ValidationErrors);
+        var meeting = Assert.IsType<MeetingInfo>(m.Meeting);
+        Assert.Equal("Переговорная 3", meeting.Location);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-06T07:00:00Z"), meeting.Start);
+        Assert.Equal("petrov@contoso.ru", meeting.Organizer!.Address);
+        var details = fake.Envelopes.Last();
+        Assert.Equal("AllProperties", details.Descendants(T + "BaseShape").Single().Value);
+        Assert.NotNull(details.Descendants(T + "TimeZoneDefinition").Single().Attribute("Id"));
     }
 
     [Fact]
@@ -687,7 +716,7 @@ public class ExchangeProviderTests
     }
 
     [Fact]
-    public async Task Drafts_and_imports_use_thunderbird_message_flags()
+    public async Task Drafts_and_imports_set_mapi_message_flags()
     {
         var fake = new FakeEws().On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Message><t:ItemId Id=\"D\" ChangeKey=\"C\"/></t:Message></m:Items>")));
         var account = Account();
@@ -711,7 +740,7 @@ public class ExchangeProviderTests
     }
 
     [Fact]
-    public async Task Read_status_is_updated_like_thunderbird_without_changekey()
+    public async Task Read_status_is_updated_without_changekey()
     {
         var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem"), Success("UpdateItem")));
         using var p = fake.CreateProvider();
@@ -738,7 +767,7 @@ public class ExchangeProviderTests
     [InlineData(ExchangeServerVersion.Exchange2016, FlagStatus.Flagged, "2", true)]
     [InlineData(ExchangeServerVersion.Exchange2016, FlagStatus.NotFlagged, "0", true)]
     [InlineData(ExchangeServerVersion.Exchange2010_SP2, FlagStatus.Flagged, "2", false)]
-    public async Task Flag_sets_item_flag_and_pr_flag_status_like_thunderbird(ExchangeServerVersion version, FlagStatus flag, string pid, bool itemFlag)
+    public async Task Flag_sets_item_flag_and_pr_flag_status(ExchangeServerVersion version, FlagStatus flag, string pid, bool itemFlag)
     {
         var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem")));
         using var p = fake.CreateProvider(version);

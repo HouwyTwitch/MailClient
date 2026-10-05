@@ -59,7 +59,7 @@ public static class SettingsStore
     private const int CurrentVersion = 2;
 
     /// <summary>
-    /// v2: Exchange sign-in follows Thunderbird — NTLM by default, and "Windows single sign-on" became
+    /// v2: Exchange sign-in uses NTLM by default, and "Windows single sign-on" became
     /// "NTLM with an empty password" (the logged-on Windows user).
     /// </summary>
     private static AppSettings Migrate(AppSettings s)
@@ -70,7 +70,7 @@ public static class SettingsStore
             if (a.AuthScheme == MailClient.Core.Models.HttpAuthScheme.Auto) a.AuthScheme = MailClient.Core.Models.HttpAuthScheme.Ntlm;
             if (a.AuthMethod == MailClient.Core.Models.AuthMethod.IntegratedWindows) a.AuthMethod = MailClient.Core.Models.AuthMethod.Password;
         }
-        Log.Info($"Настройки обновлены до версии {CurrentVersion}: вход в Exchange по NTLM, как в Thunderbird");
+        Log.Info($"Настройки обновлены до версии {CurrentVersion}: вход в Exchange по NTLM");
         s.SettingsVersion = CurrentVersion;
         Save(s);
         return s;

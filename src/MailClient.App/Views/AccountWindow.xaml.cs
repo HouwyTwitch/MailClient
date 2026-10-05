@@ -103,14 +103,14 @@ public partial class AccountWindow : Window
         ExchangeAdvanced.Visibility = imap ? Visibility.Collapsed : Visibility.Visible;
         ImapPanel.Visibility = imap ? Visibility.Visible : Visibility.Collapsed;
         PasswordPanel.Visibility = Visibility.Visible;
-        // As in Thunderbird: with NTLM/Kerberos an empty password signs in as the logged-on Windows user.
+        // With NTLM/Kerberos an empty password signs in as the logged-on Windows user.
         SsoHint.Visibility = !imap && TagOf(AuthCombo) != "Basic" ? Visibility.Visible : Visibility.Collapsed;
         SsoHint.Text = IsDomainJoined
-            ? $"Пароль можно не вводить — тогда вход выполняется под текущей учётной записью Windows ({WindowsAccount}), как в Thunderbird."
+            ? $"Пароль можно не вводить — тогда вход выполняется под текущей учётной записью Windows ({WindowsAccount})."
             : "Компьютер не входит в домен: введите имя пользователя (ДОМЕН\\логин) и пароль.";
         UserHint.Text = imap
             ? "Обычно это полный адрес электронной почты."
-            : "Логин Windows (ДОМЕН\\логин или логин@домен). Он может отличаться от адреса почты — вводите так же, как в Thunderbird.";
+            : "Логин Windows (ДОМЕН\\логин или логин@домен). Он может отличаться от адреса почты.";
     }
 
     private void ApplyPreset(MailPresets.Preset p)
@@ -216,7 +216,7 @@ public partial class AccountWindow : Window
         var a = _account.Clone();
         a.EmailAddress = EmailBox.Text.Trim();
         a.DisplayName = DisplayNameBox.Text.Trim();
-        // Thunderbird model: one credential set (user + optional password) plus the HTTP auth scheme.
+        // One credential set (user + optional password) plus the HTTP auth scheme.
         a.AuthMethod = AuthMethod.Password;
         a.AuthScheme = Enum.Parse<HttpAuthScheme>(TagOf(AuthCombo));
         a.UserName = UserBox.Text.Trim();
@@ -257,7 +257,7 @@ public partial class AccountWindow : Window
     private string? Validate(AccountSettings a, bool requireEws)
     {
         if (!EmailAddress.LooksValid(a.EmailAddress)) return "Введите корректный адрес электронной почты.";
-        // NTLM/Kerberos without a password use the Windows logon (as in Thunderbird); IMAP and Basic need one.
+        // NTLM/Kerberos without a password use the Windows logon; IMAP and Basic need one.
         if (string.IsNullOrEmpty(EffectivePassword()) && (a.Protocol == MailProtocol.Imap || a.AuthScheme == HttpAuthScheme.Basic))
             return "Введите пароль.";
         if (a.Protocol == MailProtocol.Imap)
@@ -342,7 +342,7 @@ public partial class AccountWindow : Window
     }
 
     /// <summary>
-    /// Like Thunderbird: exactly one login attempt with exactly the entered settings (login, domain, the selected
+    /// Exactly one login attempt with exactly the entered settings (login, domain, the selected
     /// authentication method; an empty password means the logged-on Windows user). No other spellings or
     /// methods are tried — repeated failed logins would lock the domain account.
     /// </summary>
@@ -362,7 +362,7 @@ public partial class AccountWindow : Window
 
         Log.Info($"Проверка подключения успешна: {a.EmailAddress} — {who}, аутентификация {SchemeName(a.AuthScheme)}, сервер {info.ServerVersion}");
         var changes = new List<string>();
-        // Like Thunderbird, learn the schema version from the server's ServerVersionInfo header.
+        // Learn the schema version from the server's ServerVersionInfo header.
         if (a.Protocol == MailProtocol.Exchange && ExchangeProvider.SuggestVersion(info.ServerVersion) is { } version
             && version != a.ServerVersion)
         {

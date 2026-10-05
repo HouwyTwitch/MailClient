@@ -106,7 +106,7 @@ public sealed class AccountSession : IDisposable
                     _authErrorReported = true;
                     AuthenticationFailed?.Invoke(this, EventArgs.Empty);
                 }
-                // Like Thunderbird: a rejected login is not retried on a timer — repeated failed logins lock the
+                // A rejected login is not retried on a timer — repeated failed logins lock the
                 // domain account. The next attempt happens only when the user asks (sync now, new password).
                 SetStatus("Ошибка входа — проверьте пароль (нажмите «Обновить» для повторной попытки)", false);
                 try

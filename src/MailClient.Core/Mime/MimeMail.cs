@@ -11,8 +11,7 @@ using MimeKit.Utils;
 namespace MailClient.Core.Mime;
 
 /// <summary>
-/// MIME handling shared by the Exchange and IMAP back-ends. Like Thunderbird, messages are read as raw MIME
-/// and parsed locally, and outgoing messages (including reply quotes, forwarded attachments and threading
+/// MIME handling shared by the Exchange and IMAP back-ends. Messages are read as raw MIME and parsed locally, and outgoing messages (including reply quotes, forwarded attachments and threading
 /// headers) are composed locally and handed to the server as MIME.
 /// </summary>
 public static partial class MimeMail
@@ -20,7 +19,7 @@ public static partial class MimeMail
     /// <summary>Separates the item id from the MIME part index inside attachment ids.</summary>
     public const char PartSeparator = '\u001E';
 
-    /// <summary>MAPI PR_MESSAGE_FLAGS bits (MAPIDefS.h), as used by Thunderbird's create_message.rs.</summary>
+    /// <summary>MAPI PR_MESSAGE_FLAGS bits (MAPIDefS.h) for messages stored with CreateItem.</summary>
     public const int MsgFlagRead = 0x1, MsgFlagUnmodified = 0x2, MsgFlagUnsent = 0x8;
 
     /// <summary>
@@ -41,7 +40,7 @@ public static partial class MimeMail
 
     /// <summary>
     /// Raw 8-bit headers (no RFC 2047 encoding) are decoded as UTF-8 when valid, otherwise in the Russian charset
-    /// detected from the header bytes (windows-1251, KOI8-R, CP866…), like Thunderbird's charset detector.
+    /// detected from the header bytes (windows-1251, KOI8-R, CP866…, see <see cref="CyrillicCharset"/>).
     /// </summary>
     private static readonly ParserOptions Parser = CreateParser(1251);
 
@@ -86,11 +85,11 @@ public static partial class MimeMail
         return result.ToArray();
     }
 
-    /// <summary>HTML body with Thunderbird-like charset detection (see <see cref="DecodeText"/>).</summary>
+    /// <summary>HTML body with charset detection (see <see cref="DecodeText"/>).</summary>
     public static string? HtmlBodyOf(MimeMessage message) =>
         message.HtmlBody is null ? null : BodyPart(message, html: true) is { } p ? DecodeText(p) : message.HtmlBody;
 
-    /// <summary>Plain-text body with Thunderbird-like charset detection (see <see cref="DecodeText"/>).</summary>
+    /// <summary>Plain-text body with charset detection (see <see cref="DecodeText"/>).</summary>
     public static string? TextBodyOf(MimeMessage message) =>
         message.TextBody is null ? null : BodyPart(message, html: false) is { } p ? DecodeText(p) : message.TextBody;
 
@@ -271,7 +270,7 @@ public static partial class MimeMail
 
     /// <summary>
     /// Composes an outgoing message as MIME. Replies quote the original and carry In-Reply-To/References;
-    /// forwards include the original and its attachments — composed locally, as Thunderbird does.
+    /// forwards include the original and its attachments — the same result on Exchange and IMAP.
     /// </summary>
     /// <param name="from">Author (account or shared mailbox).</param>
     /// <param name="loadOriginal">Loads the referenced original message (reply/forward).</param>
@@ -353,8 +352,8 @@ public static partial class MimeMail
         m.Body = builder.ToMessageBody();
         foreach (var text in m.BodyParts.OfType<TextPart>().Where(t => !t.IsAttachment))
             text.ContentType.Charset = "utf-8";
-        // 7-bit transfer encodings (quoted-printable/base64) instead of raw 8-bit UTF-8: Thunderbird does the
-        // same, and Exchange's MIME conversion and older SMTP relays mangle 8-bit bodies without 8BITMIME.
+        // 7-bit transfer encodings (quoted-printable/base64) instead of raw 8-bit UTF-8: Exchange's MIME
+        // conversion and older SMTP relays mangle 8-bit bodies without 8BITMIME.
         m.Prepare(EncodingConstraint.SevenBit);
         return m;
     }

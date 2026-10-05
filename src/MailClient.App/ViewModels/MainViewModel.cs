@@ -510,7 +510,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (folder == null || folder.IsAccountRoot) return;
         await RunAsync("Не удалось отметить папку как прочитанную", async () =>
         {
-            // One server call where supported (Exchange 2013+: MarkAllItemsAsRead, as in Thunderbird).
+            // One server call where supported (Exchange 2013+: MarkAllItemsAsRead).
             if (!await folder.Session.Provider.MarkAllReadAsync(folder.Id, true))
             {
                 await folder.Session.Sync.SyncFolderAsync(folder.Id);
@@ -548,7 +548,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await RunAsync("Не удалось изменить флаг", () => folder.Session.Provider.SetFlagAsync(items.Select(i => i.Id), FlagStatus.Complete));
     }
 
-    /// <summary>Removes items from the list and selects the next one (like Outlook/Evolution).</summary>
+    /// <summary>Removes items from the list and selects the next one, so reading can continue.</summary>
     private void RemoveFromList(IReadOnlyCollection<MessageItemViewModel> items)
     {
         var index = items.Select(i => Messages.IndexOf(i)).Where(i => i >= 0).DefaultIfEmpty(-1).Min();
@@ -582,7 +582,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public bool IsJunkFolder => SelectedFolder?.Folder.WellKnown == WellKnownFolder.JunkEmail;
 
-    /// <summary>"Junk" / "Not junk" (MarkAsJunk on Exchange 2013+, as in Thunderbird's mark_as_junk.rs).</summary>
+    /// <summary>"Junk" / "Not junk" (MarkAsJunk on Exchange 2013+, a move on older servers and IMAP).</summary>
     [RelayCommand]
     private async Task MarkAsJunkAsync()
     {
