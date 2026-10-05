@@ -62,7 +62,7 @@ public class ImapIntegrationTests
     [Fact]
     public async Task Full_mailbox_workflow()
     {
-        if (!Enabled) return;
+        Assert.SkipUnless(Enabled, "Сквозные тесты IMAP/SMTP включаются переменной MAILCLIENT_IMAP_TEST=1 (см. tests/imap-test-env.md).");
         using var p = Provider();
 
         var info = await p.ConnectAsync(TestContext.Current.CancellationToken);
@@ -155,7 +155,7 @@ public class ImapIntegrationTests
     [Fact]
     public async Task Send_reply_saves_sent_copy_with_threading_and_quote()
     {
-        if (!Enabled) return;
+        Assert.SkipUnless(Enabled, "Сквозные тесты IMAP/SMTP включаются переменной MAILCLIENT_IMAP_TEST=1 (см. tests/imap-test-env.md).");
         using var p = Provider();
         var folders = await p.GetFoldersAsync(TestContext.Current.CancellationToken);
         var inbox = folders.Single(f => f.WellKnown == WellKnownFolder.Inbox).Id;
@@ -196,7 +196,7 @@ public class ImapIntegrationTests
     [Fact]
     public async Task Draft_save_and_replace()
     {
-        if (!Enabled) return;
+        Assert.SkipUnless(Enabled, "Сквозные тесты IMAP/SMTP включаются переменной MAILCLIENT_IMAP_TEST=1 (см. tests/imap-test-env.md).");
         using var p = Provider();
         var drafts = (await p.GetFoldersAsync(TestContext.Current.CancellationToken)).Single(f => f.WellKnown == WellKnownFolder.Drafts).Id;
         await p.EmptyFolderAsync(drafts, false, TestContext.Current.CancellationToken);
@@ -212,7 +212,7 @@ public class ImapIntegrationTests
     [Fact]
     public async Task Sync_engine_keeps_offline_cache_in_step_with_server()
     {
-        if (!Enabled) return;
+        Assert.SkipUnless(Enabled, "Сквозные тесты IMAP/SMTP включаются переменной MAILCLIENT_IMAP_TEST=1 (см. tests/imap-test-env.md).");
         var db = Path.Combine(Path.GetTempPath(), $"mc-imap-{Guid.NewGuid():N}.db");
         try
         {
@@ -260,7 +260,7 @@ public class ImapIntegrationTests
     [Fact]
     public async Task Wrong_password_is_reported_as_authentication_error()
     {
-        if (!Enabled) return;
+        Assert.SkipUnless(Enabled, "Сквозные тесты IMAP/SMTP включаются переменной MAILCLIENT_IMAP_TEST=1 (см. tests/imap-test-env.md).");
         using var p = Provider(password: "неверный");
         var ex = await Assert.ThrowsAsync<MailAuthenticationException>(() => p.GetFoldersAsync(TestContext.Current.CancellationToken));
         Assert.Contains("пароль приложения", ex.Message);
@@ -269,7 +269,7 @@ public class ImapIntegrationTests
     [Fact]
     public async Task Untrusted_certificate_explains_root_ca_import()
     {
-        if (!Enabled) return;
+        Assert.SkipUnless(Enabled, "Сквозные тесты IMAP/SMTP включаются переменной MAILCLIENT_IMAP_TEST=1 (см. tests/imap-test-env.md).");
         using var p = Provider(withCa: false);
         var ex = await Assert.ThrowsAsync<MailConnectionException>(() => p.GetFoldersAsync(TestContext.Current.CancellationToken));
         Assert.Contains("корневой сертификат", ex.Message);

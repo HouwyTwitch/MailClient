@@ -129,6 +129,106 @@
         </Setter>
     </Style>
 
+    <!-- Compact formatting-toolbar button; content is an icon (TextBlock with the Icon style, or a vector Path). -->
+    <Style x:Key="FormatButton" TargetType="ButtonBase">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.Text}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Width" Value="30"/>
+        <Setter Property="Height" Value="28"/>
+        <Setter Property="Margin" Value="1,0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="ToolTipService.InitialShowDelay" Value="400"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ButtonBase">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="4">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Brush.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="ToggleButton.IsChecked" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Brush.AccentSoft}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Brush.Accent}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Colour palette drop-down (text colour, highlight) -->
+    <Style x:Key="PalettePopup" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Brush.Surface}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="6"/>
+        <Setter Property="Margin" Value="0,2,0,0"/>
+    </Style>
+    <Style x:Key="Palette" TargetType="ItemsControl">
+        <Setter Property="Width" Value="176"/>
+        <Setter Property="Margin" Value="0,4,0,0"/>
+        <Setter Property="ItemsPanel">
+            <Setter.Value>
+                <ItemsPanelTemplate>
+                    <WrapPanel/>
+                </ItemsPanelTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="PaletteSwatch" TargetType="Button">
+        <Setter Property="Width" Value="20"/>
+        <Setter Property="Height" Value="20"/>
+        <Setter Property="Margin" Value="2"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource Brush.Border}"
+                            BorderThickness="1" CornerRadius="3"/>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Brush.Accent}"/>
+                            <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="PaletteTextButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="MinHeight" Value="26"/>
+        <Setter Property="Padding" Value="8,3"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="Focusable" Value="False"/>
+    </Style>
+
+    <!-- Vector icons (16×16) for formatting commands that have no glyph in Segoe Fluent Icons. -->
+    <Style x:Key="PathIcon" TargetType="Path">
+        <Setter Property="Width" Value="16"/>
+        <Setter Property="Height" Value="16"/>
+        <Setter Property="Stretch" Value="None"/>
+        <Setter Property="Stroke" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ButtonBase}}"/>
+        <Setter Property="StrokeThickness" Value="1.3"/>
+        <Setter Property="StrokeStartLineCap" Value="Round"/>
+        <Setter Property="StrokeEndLineCap" Value="Round"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+    <Geometry x:Key="Geo.NumberedList">M7,3.5 H15 M7,8 H15 M7,12.5 H15 M2.2,2.4 L3.2,1.8 V5.2 M1.6,7.2 Q3.4,6.2 3.6,7.6 Q3.6,8.6 1.6,10.2 H3.8 M1.7,11.6 H3.6 L2.6,12.8 Q3.9,12.9 3.8,14 Q3.5,15.1 1.6,14.6</Geometry>
+    <Geometry x:Key="Geo.Indent">M1,2.5 H15 M7,6.2 H15 M7,9.8 H15 M1,13.5 H15 M1.2,5.6 L4.2,8 L1.2,10.4 Z</Geometry>
+    <Geometry x:Key="Geo.Outdent">M1,2.5 H15 M7,6.2 H15 M7,9.8 H15 M1,13.5 H15 M4.2,5.6 L1.2,8 L4.2,10.4 Z</Geometry>
+    <Geometry x:Key="Geo.Justify">M1,2.5 H15 M1,6.2 H15 M1,9.8 H15 M1,13.5 H15</Geometry>
+    <Geometry x:Key="Geo.HorizontalRule">M1,8 H15 M3,3.5 H13 M3,12.5 H13</Geometry>
+
     <!-- Navigation rail button (Mail / Contacts) -->
     <Style x:Key="NavButton" TargetType="RadioButton">
         <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}"/>
@@ -265,6 +365,7 @@
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
                         <ContentPresenter Margin="{TemplateBinding Padding}" IsHitTestVisible="False" VerticalAlignment="Center"
                                           Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
                                           ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                           ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"/>
                         <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True"

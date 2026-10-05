@@ -1,7 +1,7 @@
 # Сквозные тесты IMAP/SMTP
 
 `ImapIntegrationTests` работают с настоящим IMAP-сервером (Dovecot) и SMTP-сервером.
-Без переменной `MAILCLIENT_IMAP_TEST=1` они ничего не проверяют и сразу завершаются успешно.
+Без переменной `MAILCLIENT_IMAP_TEST=1` они помечаются как пропущенные (skipped).
 
 Тестовое окружение (Ubuntu):
 

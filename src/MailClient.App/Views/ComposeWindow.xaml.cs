@@ -1,8 +1,11 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using MailClient.App.Controls;
 using MailClient.App.Services;
 using MailClient.App.ViewModels;
 using MailClient.Core.Models;
@@ -19,11 +22,12 @@ public partial class ComposeWindow : Window
     private bool _closeConfirmed;
     private bool _closePromptOpen;
 
-    public ComposeWindow(ComposeViewModel vm)
+    public ComposeWindow(ComposeViewModel vm, AppSettings settings)
     {
         InitializeComponent();
         _vm = vm;
         DataContext = vm;
+        InitializeFormatBar();
         vm.GetBody = async () => (await Editor.GetContentAsync(), Editor.IsHtml);
         vm.CloseRequested += (_, _) =>
         {
@@ -65,7 +69,11 @@ public partial class ComposeWindow : Window
         Editor.FilesDroppedOnEditor += (_, _) => vm.StatusText = "Перетащите файлы на заголовок письма или нажмите «Вложить файл»";
         Loaded += async (_, _) =>
         {
+            // Base font first: a reopened draft then switches to the font it was written in.
+            await Editor.SetBaseFontAsync(settings.ComposeFontFamily, settings.ComposeFontSize);
             await Editor.SetHtmlAsync(vm.InitialHtml);
+            // Without WebView2 the editor is plain text: formatting does not apply.
+            if (!Editor.IsHtml) FormatBar.Visibility = Visibility.Collapsed;
             vm.IsDirty = false;
             if (string.IsNullOrWhiteSpace(vm.To)) ToBox.Focus();
             else await Editor.FocusEditorAsync();
@@ -131,17 +139,152 @@ public partial class ComposeWindow : Window
 
     // ------------------------------------------------------------------ formatting
 
-    private async void Format_Click(object sender, RoutedEventArgs e)
+    private const long MaxInlineImageBytes = 5 * 1024 * 1024;
+
+    private readonly ObservableCollection<string> _fonts = new(EditorFonts.Families);
+    private readonly ObservableCollection<double> _sizes = new(EditorFonts.Sizes);
+    private bool _syncingFormatBar;
+
+    private void InitializeFormatBar()
     {
-        if (sender is Button { CommandParameter: string cmd }) await Editor.ExecAsync(cmd);
+        FontCombo.ItemsSource = _fonts;
+        SizeCombo.ItemsSource = _sizes;
+        ColorPalette.ItemsSource = PaletteColor.TextColors;
+        HighlightPalette.ItemsSource = PaletteColor.HighlightColors;
+        Editor.FormatStateChanged += (_, state) => ShowFormatState(state);
     }
 
-    private async void Color_Click(object sender, RoutedEventArgs e)
+    /// <summary>Reflects the formatting at the caret in the toolbar (without applying anything).</summary>
+    private void ShowFormatState(EditorFormatState state)
     {
-        if (sender is Button { CommandParameter: string color }) await Editor.ExecAsync("foreColor", color);
+        _syncingFormatBar = true;
+        try
+        {
+            var font = _fonts.FirstOrDefault(f => f.Equals(state.FontFamily, StringComparison.OrdinalIgnoreCase));
+            if (font == null && state.FontFamily.Length > 0 && state.FontFamily.All(c => char.IsLetterOrDigit(c) || c is ' ' or '-'))
+            {
+                font = state.FontFamily; // e.g. text pasted from Word in a font that is not in the list
+                _fonts.Add(font);
+            }
+            FontCombo.SelectedItem = font;
+
+            if (state.FontSizePt > 0 && !_sizes.Contains(state.FontSizePt))
+            {
+                int i = 0;
+                while (i < _sizes.Count && _sizes[i] < state.FontSizePt) i++;
+                _sizes.Insert(i, state.FontSizePt);
+            }
+            SizeCombo.SelectedItem = state.FontSizePt > 0 ? state.FontSizePt : null;
+
+            BoldButton.IsChecked = state.Bold;
+            ItalicButton.IsChecked = state.Italic;
+            UnderlineButton.IsChecked = state.Underline;
+            StrikeButton.IsChecked = state.Strikethrough;
+            BulletsButton.IsChecked = state.Bullets;
+            NumbersButton.IsChecked = state.Numbering;
+            AlignLeftButton.IsChecked = state.Alignment == "left";
+            AlignCenterButton.IsChecked = state.Alignment == "center";
+            AlignRightButton.IsChecked = state.Alignment == "right";
+            JustifyButton.IsChecked = state.Alignment == "justify";
+            UndoButton.IsEnabled = state.CanUndo;
+            RedoButton.IsEnabled = state.CanRedo;
+        }
+        finally
+        {
+            _syncingFormatBar = false;
+        }
     }
 
-    private async void Highlight_Click(object sender, RoutedEventArgs e) => await Editor.ExecAsync("hiliteColor", "#FFF100");
+    private async void FontCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingFormatBar || FontCombo.SelectedItem is not string family) return;
+        await Editor.SetFontFamilyAsync(family);
+        await Editor.FocusAsync();
+    }
+
+    private async void SizeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingFormatBar || SizeCombo.SelectedItem is not double size) return;
+        await Editor.SetFontSizeAsync(size);
+        await Editor.FocusAsync();
+    }
+
+    /// <summary>On/off formatting (bold, alignment, lists): the editor reports the resulting state back.</summary>
+    private async void Toggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string command }) await Editor.ExecAsync(command);
+    }
+
+    private async void Command_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string command }) await Editor.ExecAsync(command);
+    }
+
+    private async void PaletteColor_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: PaletteColor color }) return;
+        if (color.IsHighlight)
+        {
+            HighlightButton.IsChecked = false;
+            HighlightSwatch.Fill = color.Brush;
+            await Editor.SetHighlightAsync(color.Hex);
+        }
+        else
+        {
+            ColorButton.IsChecked = false;
+            ColorSwatch.Fill = color.Brush;
+            await Editor.SetTextColorAsync(color.Hex);
+        }
+        await Editor.FocusAsync();
+    }
+
+    private async void ColorAuto_Click(object sender, RoutedEventArgs e)
+    {
+        ColorButton.IsChecked = false;
+        await Editor.SetTextColorAsync(null);
+        await Editor.FocusAsync();
+    }
+
+    private async void HighlightNone_Click(object sender, RoutedEventArgs e)
+    {
+        HighlightButton.IsChecked = false;
+        await Editor.SetHighlightAsync(null);
+        await Editor.FocusAsync();
+    }
+
+    /// <summary>A picture inside the text (sent as an inline attachment), as opposed to an attached file.</summary>
+    private async void Image_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Вставить изображение",
+            Filter = "Изображения|*.png;*.jpg;*.jpeg;*.gif;*.bmp|Все файлы|*.*",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        try
+        {
+            var info = new FileInfo(dlg.FileName);
+            if (info.Length > MaxInlineImageBytes)
+            {
+                Dialogs.Error($"Изображение слишком большое ({RuText.Size(info.Length)}). В текст можно вставить изображение " +
+                              $"до {RuText.Size(MaxInlineImageBytes)}; большие файлы добавьте как вложение.");
+                return;
+            }
+            var type = MimeTypes.FromFileName(dlg.FileName);
+            if (!type.StartsWith("image/", StringComparison.Ordinal))
+            {
+                Dialogs.Error("Выберите файл изображения (PNG, JPEG, GIF или BMP).");
+                return;
+            }
+            var bytes = await File.ReadAllBytesAsync(dlg.FileName);
+            await Editor.InsertImageAsync($"data:{type};base64,{Convert.ToBase64String(bytes)}");
+            await Editor.FocusAsync();
+        }
+        catch (IOException ex)
+        {
+            Dialogs.Error(ex, "Не удалось прочитать изображение");
+        }
+    }
 
     private async void Link_Click(object sender, RoutedEventArgs e)
     {

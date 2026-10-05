@@ -23,6 +23,9 @@ public sealed class AppSettings
     public bool MinimizeToTray { get; set; } = true;
     public bool StartWithWindows { get; set; }
     public bool ConfirmDelete { get; set; }
+    /// <summary>Default font of new messages (the font travels with the message).</summary>
+    public string ComposeFontFamily { get; set; } = EditorFonts.DefaultFamily;
+    public double ComposeFontSize { get; set; } = EditorFonts.DefaultSize;
     public double FolderPaneWidth { get; set; } = 250;
     public double MessageListWidth { get; set; } = 400;
     public double WindowWidth { get; set; } = 1360;

@@ -672,12 +672,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             AddAccount();
             return;
         }
-        WindowFactory.OpenCompose(ComposeViewModel.New(_sessions, s));
+        WindowFactory.OpenCompose(ComposeViewModel.New(_sessions, s), _settings);
     }
 
     public void ComposeMailto(string mailto)
     {
-        if (CurrentSession is { } s) WindowFactory.OpenCompose(ComposeViewModel.FromMailto(_sessions, s, mailto));
+        if (CurrentSession is { } s) WindowFactory.OpenCompose(ComposeViewModel.FromMailto(_sessions, s, mailto), _settings);
     }
 
     private void WriteTo(EmailAddress address)
@@ -686,7 +686,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var vm = ComposeViewModel.New(_sessions, s);
         vm.To = EmailAddress.FormatList(new[] { address });
         vm.IsDirty = false;
-        WindowFactory.OpenCompose(vm);
+        WindowFactory.OpenCompose(vm, _settings);
     }
 
     private async Task RespondAsync(ComposeAction action)
@@ -697,7 +697,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var message = Preview?.Message.Id == item.Id ? Preview.Message : await session.Sync.GetMessageAsync(item.Id);
-            WindowFactory.OpenCompose(ComposeViewModel.ForResponse(_sessions, session, message, action));
+            WindowFactory.OpenCompose(ComposeViewModel.ForResponse(_sessions, session, message, action), _settings);
         }
         catch (Exception ex)
         {
@@ -720,7 +720,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (folder.Folder.WellKnown == WellKnownFolder.Drafts)
             {
-                WindowFactory.OpenCompose(await ComposeViewModel.FromDraftAsync(_sessions, folder.Session, item.Id));
+                WindowFactory.OpenCompose(await ComposeViewModel.FromDraftAsync(_sessions, folder.Session, item.Id), _settings);
                 return;
             }
             var preview = await MessagePreviewViewModel.LoadAsync(folder.Session, _settings, item.Id, CancellationToken.None);

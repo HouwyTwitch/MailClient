@@ -33,9 +33,9 @@ public static class WindowFactory
         return w.ShowDialog();
     }
 
-    public static void OpenCompose(ComposeViewModel vm)
+    public static void OpenCompose(ComposeViewModel vm, AppSettings settings)
     {
-        var w = new ComposeWindow(vm);
+        var w = new ComposeWindow(vm, settings);
         w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         w.Show();
         w.Activate();

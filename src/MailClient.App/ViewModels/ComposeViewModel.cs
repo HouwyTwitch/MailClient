@@ -385,11 +385,9 @@ public sealed partial class ComposeViewModel : ObservableObject
         };
         if (isHtml)
         {
+            // The editor already wraps the text in the message font; pasted images become inline attachments.
             var (html, images) = InlineImageExtractor.Extract(body);
-            // Replies/forwards: the server merges this fragment with the quoted original, so send a fragment only.
-            message.Body = Action is ComposeAction.Reply or ComposeAction.ReplyAll or ComposeAction.Forward
-                ? $"<div style=\"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:11pt\">{html}</div>"
-                : $"<html><head><meta charset=\"utf-8\"></head><body style=\"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:11pt\">{html}</body></html>";
+            message.Body = html;
             message.Attachments.AddRange(images);
         }
         else

@@ -19,7 +19,7 @@ public partial class MessageWindow : Window
 
     private void Respond(ComposeAction action)
     {
-        WindowFactory.OpenCompose(ComposeViewModel.ForResponse(_main.Sessions, _preview.Session, _preview.Message, action));
+        WindowFactory.OpenCompose(ComposeViewModel.ForResponse(_main.Sessions, _preview.Session, _preview.Message, action), _main.Settings);
     }
 
     private void Reply_Click(object sender, RoutedEventArgs e) => Respond(ComposeAction.Reply);
