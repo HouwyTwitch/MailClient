@@ -14,8 +14,7 @@
     <Product>Корпоративная почта</Product>
     <Description>Почтовый клиент для Microsoft Exchange Server</Description>
     <SatelliteResourceLanguages>ru</SatelliteResourceLanguages>
-    <!-- Published output is a single MailClient.exe: symbols embedded (line numbers in logs), no XML docs. -->
-    <DebugType>embedded</DebugType>
+    <!-- Published output is a single MailClient.exe (+ THIRD-PARTY-NOTICES.txt), without XML docs. -->
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <PublishDocumentationFile>false</PublishDocumentationFile>
     <!-- WinForms is only used for the tray icon. Per-monitor DPI awareness must stay in app.manifest: WPF reads

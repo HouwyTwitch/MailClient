@@ -11,6 +11,8 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Symbols inside the assemblies: line numbers in logged stack traces, no separate .pdb files to ship. -->
+    <DebugType>embedded</DebugType>
     <Version>0.1.0</Version>
     <Company>MailClient</Company>
     <Product>MailClient</Product>
