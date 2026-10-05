@@ -3,31 +3,94 @@ name: build
 on:
   push:
     branches: [ "**" ]
+    tags: [ "v*" ]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: write # a GitHub Release is published for version tags
+    env:
+      # Optional code signing: a PFX certificate (base64) and its password in the repository secrets.
+      SIGNING_CERT_PFX: ${{ secrets.SIGNING_CERT_PFX }}
+      SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+      SIGNING_TIMESTAMP_URL: ${{ vars.SIGNING_TIMESTAMP_URL || 'http://timestamp.digicert.com' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - name: Version
+        shell: pwsh
+        run: |
+          # A tag v1.2.3 releases 1.2.3; other builds keep the version from Directory.Build.props.
+          $base = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $version = if ("${{ github.ref }}" -match '^refs/tags/v(\d+\.\d+\.\d+)$') { $Matches[1] } else { $base }
+          "VERSION=$version" >> $env:GITHUB_ENV
+          "FILE_VERSION=$version.${{ github.run_number }}" >> $env:GITHUB_ENV
+          Write-Host "Version $version, file version $version.${{ github.run_number }}"
       - name: Test
         run: dotnet test --project tests/MailClient.Tests -c Release
       - name: Publish
         run: >
           dotnet publish src/MailClient.App -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -p:Version=${{ env.VERSION }} -p:FileVersion=${{ env.FILE_VERSION }}
           -o publish/win-x64
+      - name: Prepare signing
+        if: env.SIGNING_CERT_PFX != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_CERT_PFX))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          "SIGNTOOL=$($signtool.FullName)" >> $env:GITHUB_ENV
+          "SIGNING_PFX_FILE=$pfx" >> $env:GITHUB_ENV
+      - name: Sign application
+        if: env.SIGNING_CERT_PFX != ''
+        shell: pwsh
+        run: |
+          & $env:SIGNTOOL sign /fd SHA256 /f $env:SIGNING_PFX_FILE /p $env:SIGNING_CERT_PASSWORD /tr $env:SIGNING_TIMESTAMP_URL /td SHA256 publish\win-x64\MailClient.exe
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
       - name: Installer
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DSourceDir=$pwd\publish\win-x64" installer\MailClient.iss
+          $isccArgs = @("/DAppVersion=$env:VERSION", "/DSourceDir=$pwd\publish\win-x64")
+          if ($env:SIGNTOOL) {
+            # Inno Setup signs the installer and the uninstaller it contains ($q = quote, $f = file).
+            $isccArgs += "/DSignTool=1"
+            $isccArgs += "/Ssigntool=`$q$env:SIGNTOOL`$q sign /fd SHA256 /f `$q$env:SIGNING_PFX_FILE`$q /p $env:SIGNING_CERT_PASSWORD /tr $env:SIGNING_TIMESTAMP_URL /td SHA256 `$f"
+          }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" @isccArgs installer\MailClient.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+      - name: Remove signing certificate
+        if: always() && env.SIGNING_PFX_FILE != ''
+        shell: pwsh
+        run: Remove-Item $env:SIGNING_PFX_FILE -Force -ErrorAction SilentlyContinue
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem publish\win-x64\MailClient.exe, publish\MailClient-Setup-*.exe |
+            ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name } |
+            Set-Content publish\SHA256SUMS.txt -Encoding ascii
+          Get-Content publish\SHA256SUMS.txt
       - uses: actions/upload-artifact@v7
         with:
-          name: MailClient
+          name: MailClient-${{ env.VERSION }}
           path: |
             publish/win-x64/MailClient.exe
             publish/MailClient-Setup-*.exe
+            publish/SHA256SUMS.txt
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}" --title "Корпоративная почта ${{ env.VERSION }}" --generate-notes
+          (Get-ChildItem publish\MailClient-Setup-*.exe).FullName publish\SHA256SUMS.txt

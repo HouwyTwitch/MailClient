@@ -51,7 +51,7 @@ public partial class App : Application
         _ = Task.Run(AppPaths.CleanupTemporaryFiles);
         MailClient.Core.Diagnostics.MailLog.Info = Log.Info;
         MailClient.Core.Diagnostics.MailLog.Warn = Log.Warn;
-        Log.Info($"Запуск {typeof(App).Assembly.GetName().Version}, Windows {Environment.OSVersion.Version}");
+        Log.Info($"Запуск {AppInfo.Version}, Windows {Environment.OSVersion.Version}");
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += (_, args) => Log.Error("Необработанное исключение", args.ExceptionObject as Exception);

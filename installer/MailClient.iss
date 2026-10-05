@@ -22,6 +22,14 @@ OutputDir=..\publish
 OutputBaseFilename=MailClient-Setup-{#AppVersion}
 SetupIconFile=..\src\MailClient.App\Assets\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
+VersionInfoVersion={#AppVersion}
+VersionInfoProductName={#AppName}
+VersionInfoDescription=Установщик «{#AppName}»
+#ifdef SignTool
+; CI passes /DSignTool=1 and /Ssigntool=… when a code-signing certificate is configured.
+SignTool=signtool
+SignedUninstaller=yes
+#endif
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
