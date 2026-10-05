@@ -11,10 +11,7 @@ public enum WellKnownFolder
     JunkEmail,
     Outbox,
     Archive,
-    Calendar,
     Contacts,
-    Tasks,
-    Notes,
 }
 
 public enum FolderKind

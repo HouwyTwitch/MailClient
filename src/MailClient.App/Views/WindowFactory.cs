@@ -62,8 +62,6 @@ public static class WindowFactory
         return ShowDialog(w) == true ? w.Value : null;
     }
 
-    public static bool? EditEvent(CalendarEvent evt) => ShowDialog(new EventWindow(evt));
-
     public static bool? EditContact(Contact contact, bool isNew) => ShowDialog(new ContactWindow(contact, isNew));
 
     public static void OutOfOffice(AccountSession session) => ShowDialog(new OofWindow(session));

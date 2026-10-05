@@ -277,21 +277,14 @@ public sealed class ExchangeProvider : IMailProvider
         _folders.Clear();
     }
 
-    public async Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, FolderKind kind = FolderKind.Mail, CancellationToken ct = default)
+    /// <summary>create_folder.rs: a plain mail folder (IPF.Note).</summary>
+    public async Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, CancellationToken ct = default)
     {
-        var folderClass = kind switch
-        {
-            FolderKind.Calendar => "IPF.Appointment",
-            FolderKind.Contacts => "IPF.Contact",
-            FolderKind.Tasks => "IPF.Task",
-            FolderKind.Notes => "IPF.StickyNote",
-            _ => "IPF.Note",
-        };
         var request = new XElement(M + "CreateFolder",
             new XElement(M + "ParentFolderId", FolderIdElement(parentFolderId)),
             new XElement(M + "Folders",
                 new XElement(T + "Folder",
-                    new XElement(T + "FolderClass", folderClass),
+                    new XElement(T + "FolderClass", "IPF.Note"),
                     new XElement(T + "DisplayName", name))));
         var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
         EwsClient.ThrowOnError(response);
@@ -302,7 +295,7 @@ public sealed class ExchangeProvider : IMailProvider
             ChangeKey = (string?)id.Attribute("ChangeKey") ?? "",
             ParentId = parentFolderId,
             DisplayName = name,
-            FolderClass = folderClass,
+            FolderClass = "IPF.Note",
         };
     }
 
@@ -569,7 +562,7 @@ public sealed class ExchangeProvider : IMailProvider
                 EwsClient.ThrowOnError(meetingResponse);
                 if (ItemElements(meetingResponse.Descendants(M + "Items").FirstOrDefault()).FirstOrDefault() is { } mi)
                 {
-                    message.Meeting = EwsParser.ParseCalendarItem(mi);
+                    message.Meeting = EwsParser.ParseMeeting(mi);
                     message.Meeting.Organizer ??= message.From;
                 }
             }
@@ -652,7 +645,7 @@ public sealed class ExchangeProvider : IMailProvider
     /// ConflictResolution=AlwaysOverwrite. AutoResolve without a ChangeKey is rejected by Exchange
     /// (ErrorChangeKeyRequiredForWriteOperations) — the "cannot mark as read" error.
     /// </summary>
-    private async Task UpdateItemsAsync(IEnumerable<string> itemIds, Func<XElement[]> updates, bool isMessage, CancellationToken ct)
+    private async Task UpdateItemsAsync(IEnumerable<string> itemIds, Func<XElement[]> updates, CancellationToken ct)
     {
         foreach (var batch in itemIds.Chunk(100))
         {
@@ -660,7 +653,7 @@ public sealed class ExchangeProvider : IMailProvider
                 new XAttribute("ConflictResolution", "AlwaysOverwrite"),
                 new XElement(M + "ItemChanges", batch.Select(id =>
                     new XElement(T + "ItemChange", ItemId(id), new XElement(T + "Updates", updates())))));
-            if (isMessage) request.Add(new XAttribute("MessageDisposition", "SaveOnly"));
+            request.Add(new XAttribute("MessageDisposition", "SaveOnly"));
             var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
             // Items deleted meanwhile are not an error for the user (Thunderbird logs and continues).
             EwsClient.ThrowOnError(response, "ErrorItemNotFound");
@@ -672,7 +665,7 @@ public sealed class ExchangeProvider : IMailProvider
         {
             new XElement(T + "SetItemField", FieldUri("message:IsRead"),
                 new XElement(T + "Message", Bool(T + "IsRead", isRead))),
-        }, true, ct);
+        }, ct);
 
     /// <summary>
     /// change_flag_status.rs: sets both item:Flag and PR_FLAG_STATUS (2 = flagged, 0 = not flagged) in one change,
@@ -693,7 +686,7 @@ public sealed class ExchangeProvider : IMailProvider
                         ExtendedFieldUri(EwsParser.FlagStatusPropTag, "Integer"),
                         new XElement(T + "Value", pidValue)))));
             return list.ToArray();
-        }, true, ct);
+        }, ct);
     }
 
     public Task SetCategoriesAsync(string itemId, IEnumerable<string> categories, CancellationToken ct = default)
@@ -706,7 +699,7 @@ public sealed class ExchangeProvider : IMailProvider
                 new XElement(T + "SetItemField", FieldUri("item:Categories"),
                     new XElement(T + "Message",
                         new XElement(T + "Categories", list.Select(c => new XElement(T + "String", c))))),
-            }, true, ct);
+            }, ct);
     }
 
     /// <summary>
@@ -986,60 +979,7 @@ public sealed class ExchangeProvider : IMailProvider
         EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false), "ErrorInvalidPropertyDelete");
     }
 
-    // ===================================================================== calendar
-
-    public async Task<IReadOnlyList<CalendarEvent>> GetEventsAsync(DateTimeOffset start, DateTimeOffset end, string? folderId = null, CancellationToken ct = default)
-    {
-        var request = new XElement(M + "FindItem", new XAttribute("Traversal", "Shallow"),
-            new XElement(M + "ItemShape", new XElement(T + "BaseShape", "AllProperties")),
-            new XElement(M + "CalendarView",
-                new XAttribute("MaxEntriesReturned", 1000),
-                new XAttribute("StartDate", Date(start)),
-                new XAttribute("EndDate", Date(end))),
-            new XElement(M + "ParentFolderIds", FolderIdElement(folderId ?? WellKnownOrName(WellKnownFolder.Calendar, "calendar"))));
-        var response = await _ews.SendAsync(request, ct, WindowsTimeZoneId()).ConfigureAwait(false);
-        EwsClient.ThrowOnError(response);
-        return ItemElements(response.Descendants(T + "Items").FirstOrDefault())
-            .Select(EwsParser.ParseCalendarItem)
-            .OrderBy(e => e.Start)
-            .ToList();
-    }
-
-    public async Task<string> CreateEventAsync(CalendarEvent evt, string? folderId = null, CancellationToken ct = default)
-    {
-        bool hasAttendees = evt.RequiredAttendees.Count + evt.OptionalAttendees.Count > 0;
-        var item = new XElement(T + "CalendarItem",
-            new XElement(T + "Subject", evt.Subject),
-            new XElement(T + "Body", new XAttribute("BodyType", "HTML"), evt.Body ?? ""),
-            Bool(T + "ReminderIsSet", evt.ReminderSet),
-            new XElement(T + "ReminderMinutesBeforeStart", evt.ReminderMinutes),
-            new XElement(T + "Start", Date(evt.Start)),
-            new XElement(T + "End", Date(evt.End)),
-            Bool(T + "IsAllDayEvent", evt.IsAllDay),
-            new XElement(T + "LegacyFreeBusyStatus", evt.FreeBusy.ToString()),
-            new XElement(T + "Location", evt.Location ?? ""));
-        if (evt.RequiredAttendees.Count > 0)
-            item.Add(new XElement(T + "RequiredAttendees", evt.RequiredAttendees.Select(a => new XElement(T + "Attendee", Mailbox(a.Name, a.Address)))));
-        if (evt.OptionalAttendees.Count > 0)
-            item.Add(new XElement(T + "OptionalAttendees", evt.OptionalAttendees.Select(a => new XElement(T + "Attendee", Mailbox(a.Name, a.Address)))));
-
-        var request = new XElement(M + "CreateItem",
-            new XAttribute("SendMeetingInvitations", hasAttendees ? "SendToAllAndSaveCopy" : "SendToNone"),
-            new XElement(M + "SavedItemFolderId", FolderIdElement(folderId ?? WellKnownOrName(WellKnownFolder.Calendar, "calendar"))),
-            new XElement(M + "Items", item));
-        var response = await _ews.SendAsync(request, ct, WindowsTimeZoneId()).ConfigureAwait(false);
-        EwsClient.ThrowOnError(response);
-        return (string?)response.Descendants(T + "ItemId").FirstOrDefault()?.Attribute("Id") ?? "";
-    }
-
-    public async Task CancelOrDeleteEventAsync(string itemId, bool isOrganizerOfMeeting, CancellationToken ct = default)
-    {
-        var request = new XElement(M + "DeleteItem",
-            new XAttribute("DeleteType", "MoveToDeletedItems"),
-            new XAttribute("SendMeetingCancellations", isOrganizerOfMeeting ? "SendToAllAndSaveCopy" : "SendToNone"),
-            ItemIds(new[] { itemId }));
-        EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
-    }
+    // ===================================================================== meeting invitations
 
     public async Task RespondToMeetingAsync(string itemId, MeetingResponse response, string? comment = null, CancellationToken ct = default)
     {
@@ -1059,51 +999,6 @@ public sealed class ExchangeProvider : IMailProvider
             new XElement(M + "Items", item));
         EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
     }
-
-    // ===================================================================== tasks
-
-    public async Task<IReadOnlyList<TaskItem>> GetTasksAsync(string? folderId = null, CancellationToken ct = default)
-    {
-        var request = new XElement(M + "FindItem", new XAttribute("Traversal", "Shallow"),
-            new XElement(M + "ItemShape", new XElement(T + "BaseShape", "AllProperties")),
-            new XElement(M + "IndexedPageItemView",
-                new XAttribute("MaxEntriesReturned", PageSizeMax),
-                new XAttribute("Offset", 0),
-                new XAttribute("BasePoint", "Beginning")),
-            new XElement(M + "ParentFolderIds", FolderIdElement(folderId ?? WellKnownOrName(WellKnownFolder.Tasks, "tasks"))));
-        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
-        EwsClient.ThrowOnError(response);
-        return ItemElements(response.Descendants(T + "Items").FirstOrDefault())
-            .Where(e => e.Name.LocalName == "Task")
-            .Select(EwsParser.ParseTask)
-            .OrderBy(t => t.IsComplete)
-            .ThenBy(t => t.DueDate ?? DateTimeOffset.MaxValue)
-            .ToList();
-    }
-
-    public async Task<string> CreateTaskAsync(TaskItem task, string? folderId = null, CancellationToken ct = default)
-    {
-        var item = new XElement(T + "Task",
-            new XElement(T + "Subject", task.Subject),
-            new XElement(T + "Body", new XAttribute("BodyType", "Text"), task.Body ?? ""),
-            new XElement(T + "Importance", task.Importance.ToString()));
-        if (task.DueDate is { } due) item.Add(new XElement(T + "DueDate", Date(due)));
-        if (task.StartDate is { } start) item.Add(new XElement(T + "StartDate", Date(start)));
-        item.Add(new XElement(T + "Status", task.Status.ToString()));
-        var request = new XElement(M + "CreateItem",
-            new XElement(M + "SavedItemFolderId", FolderIdElement(folderId ?? WellKnownOrName(WellKnownFolder.Tasks, "tasks"))),
-            new XElement(M + "Items", item));
-        var response = await _ews.SendAsync(request, ct, WindowsTimeZoneId()).ConfigureAwait(false);
-        EwsClient.ThrowOnError(response);
-        return (string?)response.Descendants(T + "ItemId").FirstOrDefault()?.Attribute("Id") ?? "";
-    }
-
-    public Task SetTaskCompleteAsync(string itemId, bool complete, CancellationToken ct = default) =>
-        UpdateItemsAsync(new[] { itemId }, () => new[]
-        {
-            new XElement(T + "SetItemField", FieldUri("task:Status"),
-                new XElement(T + "Task", new XElement(T + "Status", complete ? "Completed" : "NotStarted"))),
-        }, false, ct);
 
     // ===================================================================== out of office
 

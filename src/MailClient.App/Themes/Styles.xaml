@@ -129,7 +129,7 @@
         </Setter>
     </Style>
 
-    <!-- Navigation rail button (Mail / Calendar / Contacts / Tasks) -->
+    <!-- Navigation rail button (Mail / Contacts) -->
     <Style x:Key="NavButton" TargetType="RadioButton">
         <Setter Property="Foreground" Value="{DynamicResource Brush.TextSecondary}"/>
         <Setter Property="Width" Value="56"/>

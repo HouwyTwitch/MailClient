@@ -6,13 +6,13 @@ namespace MailClient.Core.Services;
 public enum ProviderCapabilities
 {
     None = 0,
-    Calendar = 1,
     Contacts = 2,
-    Tasks = 4,
     OutOfOffice = 8,
     /// <summary>Organization address book (Global Address List).</summary>
     Directory = 16,
-    All = Calendar | Contacts | Tasks | OutOfOffice | Directory,
+    /// <summary>Accept/decline meeting invitations received by mail.</summary>
+    MeetingResponses = 32,
+    All = Contacts | OutOfOffice | Directory | MeetingResponses,
 }
 
 /// <summary>
@@ -31,7 +31,7 @@ public interface IMailProvider : IDisposable
 
     // ---- Folders ----
     Task<IReadOnlyList<MailFolder>> GetFoldersAsync(CancellationToken ct = default);
-    Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, FolderKind kind = FolderKind.Mail, CancellationToken ct = default);
+    Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, CancellationToken ct = default);
     Task RenameFolderAsync(string folderId, string newName, CancellationToken ct = default);
     Task MoveFolderAsync(string folderId, string newParentFolderId, CancellationToken ct = default);
     Task DeleteFolderAsync(string folderId, bool permanent, CancellationToken ct = default);
@@ -77,16 +77,8 @@ public interface IMailProvider : IDisposable
     Task<string> CreateContactAsync(Contact contact, string? folderId = null, CancellationToken ct = default);
     Task UpdateContactAsync(Contact contact, CancellationToken ct = default);
 
-    // ---- Calendar ----
-    Task<IReadOnlyList<CalendarEvent>> GetEventsAsync(DateTimeOffset start, DateTimeOffset end, string? folderId = null, CancellationToken ct = default);
-    Task<string> CreateEventAsync(CalendarEvent evt, string? folderId = null, CancellationToken ct = default);
-    Task CancelOrDeleteEventAsync(string itemId, bool isOrganizerOfMeeting, CancellationToken ct = default);
+    // ---- Meeting invitations (received by mail) ----
     Task RespondToMeetingAsync(string itemId, MeetingResponse response, string? comment = null, CancellationToken ct = default);
-
-    // ---- Tasks ----
-    Task<IReadOnlyList<TaskItem>> GetTasksAsync(string? folderId = null, CancellationToken ct = default);
-    Task<string> CreateTaskAsync(TaskItem task, string? folderId = null, CancellationToken ct = default);
-    Task SetTaskCompleteAsync(string itemId, bool complete, CancellationToken ct = default);
 
     // ---- Automatic replies ----
     Task<OofSettings> GetOutOfOfficeAsync(CancellationToken ct = default);

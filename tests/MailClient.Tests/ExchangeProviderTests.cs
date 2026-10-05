@@ -328,7 +328,7 @@ public class ExchangeProviderTests
     }
 
     [Fact]
-    public async Task Contacts_calendar_tasks_produce_schema_valid_requests()
+    public async Task Contacts_and_meeting_response_produce_schema_valid_requests()
     {
         var fake = new FakeEws()
             .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(
@@ -336,55 +336,22 @@ public class ExchangeProviderTests
                 <t:Contact><t:ItemId Id="C1"/><t:DisplayName>Alice</t:DisplayName><t:GivenName>Alice</t:GivenName>
                   <t:EmailAddresses><t:Entry Key="EmailAddress1">alice@contoso.com</t:Entry></t:EmailAddresses></t:Contact>
                 """))))
-            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(
-                """
-                <t:CalendarItem><t:ItemId Id="E1"/><t:Subject>Standup</t:Subject><t:Start>2026-10-01T09:00:00Z</t:Start><t:End>2026-10-01T09:15:00Z</t:End>
-                  <t:IsAllDayEvent>false</t:IsAllDayEvent><t:LegacyFreeBusyStatus>Busy</t:LegacyFreeBusyStatus><t:Location>Room 1</t:Location>
-                  <t:IsMeeting>true</t:IsMeeting><t:MyResponseType>Accept</t:MyResponseType>
-                  <t:Organizer><t:Mailbox><t:Name>Bob</t:Name><t:EmailAddress>bob@contoso.com</t:EmailAddress></t:Mailbox></t:Organizer></t:CalendarItem>
-                """))))
-            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(
-                """
-                <t:Task><t:ItemId Id="T1"/><t:Subject>Write spec</t:Subject><t:DueDate>2026-10-05T00:00:00Z</t:DueDate>
-                  <t:PercentComplete>50</t:PercentComplete><t:Status>InProgress</t:Status></t:Task>
-                """))))
             .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Contact><t:ItemId Id=\"NEW\"/></t:Contact></m:Items>")))
             .On("UpdateItem", Response("UpdateItem", Success("UpdateItem")))
-            .On("DeleteItem", Response("DeleteItem", Success("DeleteItem")))
             .On("GetItem", Response("GetItem", Success("GetItem", "<m:Items><t:MeetingRequest><t:ItemId Id=\"MR\" ChangeKey=\"CK\"/></t:MeetingRequest></m:Items>")));
         using var p = fake.CreateProvider();
 
         var contacts = await p.GetContactsAsync();
-        var events = await p.GetEventsAsync(DateTimeOffset.Parse("2026-10-01T00:00:00Z"), DateTimeOffset.Parse("2026-10-08T00:00:00Z"));
-        var tasks = await p.GetTasksAsync();
-
         await p.CreateContactAsync(new Contact
         {
             GivenName = "Carol", Surname = "Jones", CompanyName = "Fabrikam", JobTitle = "CTO", Department = "IT",
             EmailAddresses = { "carol@fabrikam.com" }, MobilePhone = "+1 555 0101", Notes = "met at conf",
         });
         await p.UpdateContactAsync(new Contact { Id = "C1", DisplayName = "Alice A", EmailAddresses = { "alice@contoso.com" } });
-        await p.CreateEventAsync(new CalendarEvent
-        {
-            Subject = "Review", Location = "Room 2",
-            Start = DateTimeOffset.Parse("2026-10-02T10:00:00Z"), End = DateTimeOffset.Parse("2026-10-02T11:00:00Z"),
-            RequiredAttendees = { new EmailAddress("Bob", "bob@contoso.com") },
-        });
-        await p.CreateTaskAsync(new TaskItem { Subject = "Do it", DueDate = DateTimeOffset.Parse("2026-10-03T00:00:00Z") });
-        await p.SetTaskCompleteAsync("T1", true);
         await p.RespondToMeetingAsync("MR", MeetingResponse.Tentative, "Might be late");
-        await p.CancelOrDeleteEventAsync("E1", isOrganizerOfMeeting: true);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal("alice@contoso.com", contacts.Single().PrimaryEmail);
-        var e = events.Single();
-        Assert.Equal("Standup", e.Subject);
-        Assert.Equal(ResponseStatus.Accept, e.MyResponse);
-        Assert.Equal("bob@contoso.com", e.Organizer!.Address);
-        var t = tasks.Single();
-        Assert.Equal(TaskItemStatus.InProgress, t.Status);
-        Assert.Equal(50, t.PercentComplete);
-        Assert.Equal("SendToAllAndSaveCopy", fake.Requests.Single(r => r.Descendants(T + "CalendarItem").Any()).Attribute("SendMeetingInvitations")!.Value);
         Assert.NotNull(fake.Requests.Last(r => r.Name.LocalName == "CreateItem").Descendants(T + "TentativelyAcceptItem").SingleOrDefault());
     }
 

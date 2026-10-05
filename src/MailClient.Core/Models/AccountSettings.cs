@@ -34,7 +34,7 @@ public enum ExchangeServerVersion
 
 public enum MailProtocol
 {
-    /// <summary>Microsoft Exchange via EWS: mail, calendar, contacts, tasks, address book.</summary>
+    /// <summary>Microsoft Exchange via EWS: mail, contacts, address book, out-of-office.</summary>
     Exchange,
     /// <summary>IMAP for reading + SMTP for sending (Yandex 360, Mail.ru, Exchange with IMAP, Dovecot, ...).</summary>
     Imap,

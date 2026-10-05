@@ -54,10 +54,7 @@ public static class RuText
         WellKnownFolder.JunkEmail => "Нежелательная почта",
         WellKnownFolder.Outbox => "Исходящие",
         WellKnownFolder.Archive => "Архив",
-        WellKnownFolder.Calendar => "Календарь",
         WellKnownFolder.Contacts => "Контакты",
-        WellKnownFolder.Tasks => "Задачи",
-        WellKnownFolder.Notes => "Заметки",
         _ => f.DisplayName,
     };
 
@@ -104,16 +101,6 @@ public static class RuText
         ResponseStatus.Decline => "Отклонено",
         ResponseStatus.Organizer => "Вы организатор",
         ResponseStatus.NoResponseReceived => "Ответ не отправлен",
-        _ => "",
-    };
-
-    public static string TaskStatusText(TaskItemStatus s) => s switch
-    {
-        TaskItemStatus.NotStarted => "Не начата",
-        TaskItemStatus.InProgress => "Выполняется",
-        TaskItemStatus.Completed => "Завершена",
-        TaskItemStatus.WaitingOnOthers => "Ожидает других",
-        TaskItemStatus.Deferred => "Отложена",
         _ => "",
     };
 

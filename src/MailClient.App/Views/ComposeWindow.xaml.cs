@@ -34,7 +34,18 @@ public partial class ComposeWindow : Window
         _suggestTimer.Tick += async (_, _) =>
         {
             _suggestTimer.Stop();
-            await ShowSuggestionsAsync();
+            try
+            {
+                await ShowSuggestionsAsync();
+            }
+            catch (OperationCanceledException)
+            {
+                // Superseded by newer input.
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Подсказка адресов не удалась: {ex.Message}");
+            }
         };
         foreach (var box in new[] { ToBox, CcBox, BccBox })
         {
@@ -142,9 +153,9 @@ public partial class ComposeWindow : Window
             return;
         }
         _suggestCts?.Cancel();
-        _suggestCts = new CancellationTokenSource();
-        var results = await _vm.SuggestAsync(token, _suggestCts.Token);
-        if (_suggestCts.IsCancellationRequested || box != _suggestTarget) return;
+        var cts = _suggestCts = new CancellationTokenSource();
+        var results = await _vm.SuggestAsync(token, cts.Token);
+        if (cts.IsCancellationRequested || box != _suggestTarget) return;
         SuggestList.ItemsSource = results;
         SuggestPopup.PlacementTarget = box;
         SuggestPopup.Width = box.ActualWidth;

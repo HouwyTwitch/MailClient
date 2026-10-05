@@ -44,8 +44,8 @@ public sealed class MailMessage : MessageSummary
     public bool IsReadReceiptRequested { get; set; }
     public List<AttachmentInfo> Attachments { get; set; } = new();
 
-    /// <summary>For meeting requests: the associated calendar event details.</summary>
-    public CalendarEvent? Meeting { get; set; }
+    /// <summary>For meeting invitations: time, place and organizer.</summary>
+    public MeetingInfo? Meeting { get; set; }
 }
 
 public sealed class AttachmentInfo

@@ -291,10 +291,9 @@ public sealed class ImapProvider : IMailProvider
         return folder;
     }
 
-    public Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, FolderKind kind = FolderKind.Mail, CancellationToken ct = default) =>
+    public Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, CancellationToken ct = default) =>
         RunAsync(async () =>
         {
-            if (kind != FolderKind.Mail) throw new MailServiceException("IMAP поддерживает только почтовые папки.");
             var parent = await FolderAsync(parentFolderId, ct).ConfigureAwait(false);
             var created = await parent.CreateAsync(name, true, ct).ConfigureAwait(false);
             return new MailFolder { Id = created.FullName, ParentId = parentFolderId, DisplayName = created.Name, FolderClass = "IPF.Note" };
@@ -768,13 +767,7 @@ public sealed class ImapProvider : IMailProvider
     public Task<IReadOnlyList<Contact>> GetContactsAsync(string? folderId = null, CancellationToken ct = default) => throw NotSupported("Контакты");
     public Task<string> CreateContactAsync(Contact contact, string? folderId = null, CancellationToken ct = default) => throw NotSupported("Контакты");
     public Task UpdateContactAsync(Contact contact, CancellationToken ct = default) => throw NotSupported("Контакты");
-    public Task<IReadOnlyList<CalendarEvent>> GetEventsAsync(DateTimeOffset start, DateTimeOffset end, string? folderId = null, CancellationToken ct = default) => throw NotSupported("Календарь и встречи");
-    public Task<string> CreateEventAsync(CalendarEvent evt, string? folderId = null, CancellationToken ct = default) => throw NotSupported("Календарь и встречи");
-    public Task CancelOrDeleteEventAsync(string itemId, bool isOrganizerOfMeeting, CancellationToken ct = default) => throw NotSupported("Календарь и встречи");
     public Task RespondToMeetingAsync(string itemId, MeetingResponse response, string? comment = null, CancellationToken ct = default) => throw NotSupported("Ответы на приглашения");
-    public Task<IReadOnlyList<TaskItem>> GetTasksAsync(string? folderId = null, CancellationToken ct = default) => throw NotSupported("Задачи");
-    public Task<string> CreateTaskAsync(TaskItem task, string? folderId = null, CancellationToken ct = default) => throw NotSupported("Задачи");
-    public Task SetTaskCompleteAsync(string itemId, bool complete, CancellationToken ct = default) => throw NotSupported("Задачи");
     public Task<OofSettings> GetOutOfOfficeAsync(CancellationToken ct = default) => throw NotSupported("Автоответы");
     public Task SetOutOfOfficeAsync(OofSettings settings, CancellationToken ct = default) => throw NotSupported("Автоответы");
 

@@ -38,15 +38,9 @@
                 <StackPanel DockPanel.Dock="Top" Margin="0,8,0,0">
                     <RadioButton Style="{StaticResource NavButton}" Tag="&#xE715;" Content="Почта" ToolTip="Почта"
                                  IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Mail}"/>
-                    <RadioButton Style="{StaticResource NavButton}" Tag="&#xE787;" Content="Календарь" ToolTip="Календарь"
-                                 Visibility="{Binding SupportsCalendar, Converter={StaticResource BoolToVis}}"
-                                 IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Calendar}"/>
                     <RadioButton Style="{StaticResource NavButton}" Tag="&#xE77B;" Content="Контакты" ToolTip="Контакты и адресная книга"
                                  Visibility="{Binding SupportsContacts, Converter={StaticResource BoolToVis}}"
                                  IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Contacts}"/>
-                    <RadioButton Style="{StaticResource NavButton}" Tag="&#xE9D5;" Content="Задачи" ToolTip="Задачи"
-                                 Visibility="{Binding SupportsTasks, Converter={StaticResource BoolToVis}}"
-                                 IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Tasks}"/>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,8">
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE9CA;" ToolTip="Автоответ (нет на месте)" HorizontalAlignment="Center"
@@ -411,139 +405,6 @@
             </DockPanel>
         </Grid>
 
-        <!-- ================================================= CALENDAR -->
-        <Grid Grid.Column="1" DataContext="{Binding Calendar}" Background="{DynamicResource Brush.Surface}"
-              Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumToVis}, ConverterParameter=Calendar}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <DockPanel>
-                <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="12,8">
-                    <DockPanel>
-                        <Button Style="{StaticResource AccentButton}" Command="{Binding NewEventCommand}" Margin="0,0,16,0">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE710;" FontSize="13" Foreground="{DynamicResource Brush.AccentText}"/>
-                                <TextBlock Text="Новое событие" Margin="8,0,0,0"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE76B;" Command="{Binding PreviousCommand}" ToolTip="Предыдущая неделя"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE76C;" Command="{Binding NextCommand}" ToolTip="Следующая неделя"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8D1;" Content="Сегодня" Command="{Binding TodayCommand}"/>
-                        <TextBlock Text="{Binding RangeText}" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0"/>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Tag="&#xE72C;" Command="{Binding LoadCommand}" ToolTip="Обновить"
-                                HorizontalAlignment="Right"/>
-                    </DockPanel>
-                </Border>
-                <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusText}" Style="{StaticResource Caption}" Margin="14,6"/>
-                <ItemsControl ItemsSource="{Binding Days}" Margin="8">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <UniformGrid Rows="1" Columns="7"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="{x:Type vm:CalendarDayViewModel}">
-                            <Border x:Name="card" Style="{StaticResource Card}" Margin="4" Padding="6">
-                                <DockPanel>
-                                    <DockPanel DockPanel.Dock="Top" Margin="4,2,2,8">
-                                        <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Tag="&#xE710;" Padding="4,2" MinHeight="24"
-                                                ToolTip="Новое событие в этот день"
-                                                Command="{Binding DataContext.NewEventCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Date}"/>
-                                        <Border x:Name="num" Width="30" Height="30" CornerRadius="15" Background="Transparent">
-                                            <TextBlock x:Name="numText" Text="{Binding DayNumber}" FontSize="16" FontWeight="SemiBold"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                        <TextBlock x:Name="dayName" Text="{Binding DayName}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                                    </DockPanel>
-                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                        <ItemsControl ItemsSource="{Binding Events}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate DataType="{x:Type vm:CalendarEventViewModel}">
-                                                    <Button Margin="0,0,0,4" Padding="0" HorizontalContentAlignment="Stretch" Cursor="Hand"
-                                                            Command="{Binding DataContext.Calendar.SelectEventCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                            CommandParameter="{Binding}">
-                                                        <Button.Template>
-                                                            <ControlTemplate TargetType="Button">
-                                                                <Border x:Name="chip" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="5"
-                                                                        BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="3,0,0,0" Padding="7,5">
-                                                                    <ContentPresenter/>
-                                                                </Border>
-                                                                <ControlTemplate.Triggers>
-                                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                                        <Setter TargetName="chip" Property="Opacity" Value="0.85"/>
-                                                                    </Trigger>
-                                                                </ControlTemplate.Triggers>
-                                                            </ControlTemplate>
-                                                        </Button.Template>
-                                                        <StackPanel>
-                                                            <TextBlock x:Name="subj" Text="{Binding Subject}" FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="36"
-                                                                       Foreground="{DynamicResource Brush.Text}"/>
-                                                            <TextBlock Text="{Binding TimeText}" FontSize="11" Foreground="{DynamicResource Brush.TextSecondary}"/>
-                                                            <TextBlock Text="{Binding Location}" FontSize="11" Foreground="{DynamicResource Brush.TextSecondary}"
-                                                                       TextTrimming="CharacterEllipsis" Visibility="{Binding HasLocation, Converter={StaticResource BoolToVis}}"/>
-                                                        </StackPanel>
-                                                    </Button>
-                                                    <DataTemplate.Triggers>
-                                                        <DataTrigger Binding="{Binding IsCancelled}" Value="True">
-                                                            <Setter TargetName="subj" Property="TextDecorations" Value="Strikethrough"/>
-                                                        </DataTrigger>
-                                                    </DataTemplate.Triggers>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
-                                </DockPanel>
-                            </Border>
-                            <DataTemplate.Triggers>
-                                <DataTrigger Binding="{Binding IsToday}" Value="True">
-                                    <Setter TargetName="num" Property="Background" Value="{DynamicResource Brush.Accent}"/>
-                                    <Setter TargetName="numText" Property="Foreground" Value="{DynamicResource Brush.AccentText}"/>
-                                    <Setter TargetName="card" Property="BorderBrush" Value="{DynamicResource Brush.Accent}"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding IsWeekend}" Value="True">
-                                    <Setter TargetName="card" Property="Background" Value="{DynamicResource Brush.SurfaceAlt}"/>
-                                    <Setter TargetName="dayName" Property="Foreground" Value="{DynamicResource Brush.Danger}"/>
-                                </DataTrigger>
-                            </DataTemplate.Triggers>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </DockPanel>
-
-            <!-- event details -->
-            <Border Grid.Column="1" Width="320" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1,0,0,0" Padding="20"
-                    Background="{DynamicResource Brush.Surface}" Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
-                <StackPanel DataContext="{Binding SelectedEvent}">
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Tag="&#xE711;" ToolTip="Закрыть"
-                                Command="{Binding DataContext.Calendar.SelectEventCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
-                        <TextBlock Text="{Binding Subject}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                    </DockPanel>
-                    <TextBlock Text="{Binding DateText}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding RecurrenceText}" Style="{StaticResource Caption}"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Visibility="{Binding HasLocation, Converter={StaticResource BoolToVis}}">
-                        <TextBlock Style="{StaticResource Icon}" Text="&#xE707;" FontSize="13" Margin="0,0,6,0"/>
-                        <TextBlock Text="{Binding Location}" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <TextBlock Text="Организатор" Style="{StaticResource FieldLabel}" Visibility="{Binding OrganizerText, Converter={StaticResource BoolToVis}}"/>
-                    <TextBlock Text="{Binding OrganizerText}" TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding ResponseText}" Style="{StaticResource Caption}" Margin="0,8,0,0"/>
-                    <WrapPanel Margin="0,16,0,0" Visibility="{Binding CanRespond, Converter={StaticResource BoolToVis}}">
-                        <Button Content="Принять" Style="{StaticResource AccentButton}" Margin="0,0,6,6"
-                                Command="{Binding DataContext.Calendar.RespondCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="Accept"/>
-                        <Button Content="Под вопросом" Margin="0,0,6,6"
-                                Command="{Binding DataContext.Calendar.RespondCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="Tentative"/>
-                        <Button Content="Отклонить" Margin="0,0,6,6"
-                                Command="{Binding DataContext.Calendar.RespondCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="Decline"/>
-                    </WrapPanel>
-                    <Button Content="Удалить / отменить" Margin="0,12,0,0" HorizontalAlignment="Left" Foreground="{DynamicResource Brush.Danger}"
-                            Command="{Binding DataContext.Calendar.DeleteEventCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
-                </StackPanel>
-            </Border>
-        </Grid>
-
         <!-- ================================================= CONTACTS -->
         <Grid Grid.Column="1" DataContext="{Binding Contacts}" Background="{DynamicResource Brush.Surface}"
               Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumToVis}, ConverterParameter=Contacts}">
@@ -640,63 +501,6 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
-
-        <!-- ================================================= TASKS -->
-        <DockPanel Grid.Column="1" DataContext="{Binding Tasks}" Background="{DynamicResource Brush.Surface}"
-                   Visibility="{Binding DataContext.Section, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumToVis}, ConverterParameter=Tasks}">
-            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="16,12">
-                <StackPanel>
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Tag="&#xE72C;" Command="{Binding LoadCommand}" ToolTip="Обновить"/>
-                        <CheckBox DockPanel.Dock="Right" Content="Показывать завершённые" IsChecked="{Binding ShowCompleted}" Margin="0,0,12,0"/>
-                        <TextBlock Text="Задачи" FontSize="19" FontWeight="SemiBold"/>
-                    </DockPanel>
-                    <DockPanel Margin="0,12,0,0">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource AccentButton}" Content="Добавить" Command="{Binding AddCommand}" Margin="8,0,0,0"/>
-                        <DatePicker DockPanel.Dock="Right" SelectedDate="{Binding NewDueDate}" Width="140" Margin="8,0,0,0" ToolTip="Срок выполнения"
-                                    VerticalContentAlignment="Center"/>
-                        <TextBox Text="{Binding NewSubject, UpdateSourceTrigger=PropertyChanged}" ToolTip="Новая задача — введите текст и нажмите Enter">
-                            <TextBox.InputBindings>
-                                <KeyBinding Key="Enter" Command="{Binding AddCommand}"/>
-                            </TextBox.InputBindings>
-                        </TextBox>
-                    </DockPanel>
-                </StackPanel>
-            </Border>
-            <TextBlock DockPanel.Dock="Bottom" Text="{Binding StatusText}" Style="{StaticResource Caption}" Margin="16,6"/>
-            <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8">
-                <ListBox.ItemTemplate>
-                    <DataTemplate DataType="{x:Type vm:TaskItemViewModel}">
-                        <Grid Margin="8,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <CheckBox IsChecked="{Binding IsComplete}" VerticalAlignment="Center" Margin="0,0,10,0" ToolTip="Отметить как выполненную"/>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock x:Name="subj" Text="{Binding Subject}" TextWrapping="Wrap" FontSize="14"/>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="due" Text="{Binding DueText}" Style="{StaticResource Caption}" Margin="0,0,12,0"/>
-                                    <TextBlock Text="{Binding StatusText}" Style="{StaticResource Caption}"/>
-                                </StackPanel>
-                            </StackPanel>
-                            <Button Grid.Column="2" Style="{StaticResource ToolButton}" Tag="&#xE74D;" ToolTip="Удалить задачу"
-                                    Command="{Binding DataContext.Tasks.DeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
-                        </Grid>
-                        <DataTemplate.Triggers>
-                            <DataTrigger Binding="{Binding IsComplete}" Value="True">
-                                <Setter TargetName="subj" Property="TextDecorations" Value="Strikethrough"/>
-                                <Setter TargetName="subj" Property="Foreground" Value="{DynamicResource Brush.TextSecondary}"/>
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding IsOverdue}" Value="True">
-                                <Setter TargetName="due" Property="Foreground" Value="{DynamicResource Brush.Danger}"/>
-                            </DataTrigger>
-                        </DataTemplate.Triggers>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </DockPanel>
 
         <!-- ================================================= status bar -->
         <Border Grid.Row="1" Grid.ColumnSpan="2" Background="{DynamicResource Brush.SurfaceAlt}" BorderBrush="{DynamicResource Brush.Border}"

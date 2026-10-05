@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 namespace MailClient.App.ViewModels;
 
-public enum AppSection { Mail, Calendar, Contacts, Tasks }
+public enum AppSection { Mail, Contacts }
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
@@ -37,16 +37,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _reloadTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(300), DispatcherPriority.Background, (_, _) => FlushReloads(), _dispatcher) { IsEnabled = false };
         _markReadTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher);
         _markReadTimer.Tick += async (_, _) => await MarkCurrentAsReadAsync();
-        Calendar = new CalendarViewModel(() => CurrentSession);
         Contacts = new ContactsViewModel(() => CurrentSession, WriteTo);
-        Tasks = new TasksViewModel(() => CurrentSession);
     }
 
     public AppSettings Settings => _settings;
     public IReadOnlyList<AccountSession> Sessions => _sessions;
-    public CalendarViewModel Calendar { get; }
     public ContactsViewModel Contacts { get; }
-    public TasksViewModel Tasks { get; }
     public TrayService? Tray { get; set; }
 
     public ObservableCollection<FolderNodeViewModel> Roots { get; } = new();
@@ -57,7 +53,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected), nameof(IsJunkFolder),
-        nameof(SupportsCalendar), nameof(SupportsContacts), nameof(SupportsTasks), nameof(SupportsOutOfOffice))]
+        nameof(SupportsContacts), nameof(SupportsOutOfOffice))]
     private FolderNodeViewModel? _selectedFolder;
 
     [ObservableProperty]
@@ -80,9 +76,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public bool HasSelection => SelectedMessage != null;
 
     private ProviderCapabilities Caps => CurrentSession?.Provider.Capabilities ?? ProviderCapabilities.All;
-    public bool SupportsCalendar => Caps.HasFlag(ProviderCapabilities.Calendar);
     public bool SupportsContacts => Caps.HasFlag(ProviderCapabilities.Contacts);
-    public bool SupportsTasks => Caps.HasFlag(ProviderCapabilities.Tasks);
     public bool SupportsOutOfOffice => Caps.HasFlag(ProviderCapabilities.OutOfOffice);
     public bool HasPreview => Preview != null;
     public bool HasAccounts => _sessions.Count > 0;
@@ -799,23 +793,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool SectionSupported(AppSection s) => s switch
-    {
-        AppSection.Calendar => SupportsCalendar,
-        AppSection.Contacts => SupportsContacts,
-        AppSection.Tasks => SupportsTasks,
-        _ => true,
-    };
+    private bool SectionSupported(AppSection s) => s != AppSection.Contacts || SupportsContacts;
 
     partial void OnSectionChanged(AppSection value) => _ = LoadSectionAsync();
 
-    private Task LoadSectionAsync() => Section switch
-    {
-        AppSection.Calendar => Calendar.LoadAsync(),
-        AppSection.Contacts => Contacts.LoadAsync(),
-        AppSection.Tasks => Tasks.LoadAsync(),
-        _ => Task.CompletedTask,
-    };
+    private Task LoadSectionAsync() => Section == AppSection.Contacts ? Contacts.LoadAsync() : Task.CompletedTask;
 
     // ================================================================== folder management
 

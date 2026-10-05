@@ -76,9 +76,6 @@ internal static class Ews
             ["deleteditems"] = Core.Models.WellKnownFolder.DeletedItems,
             ["junkemail"] = Core.Models.WellKnownFolder.JunkEmail,
             ["outbox"] = Core.Models.WellKnownFolder.Outbox,
-            ["calendar"] = Core.Models.WellKnownFolder.Calendar,
             ["contacts"] = Core.Models.WellKnownFolder.Contacts,
-            ["tasks"] = Core.Models.WellKnownFolder.Tasks,
-            ["notes"] = Core.Models.WellKnownFolder.Notes,
         };
 }

@@ -209,7 +209,9 @@ public static class MimeMail
             }
         }
 
-        builder.HtmlBody = html;
+        // A complete document that declares UTF-8: Exchange (and Outlook) otherwise guess the charset of an
+        // HTML body from the server's code page, and Cyrillic text turns into mojibake in Sent Items.
+        builder.HtmlBody = Utf8HtmlDocument(html);
         builder.TextBody = MessageHtmlBuilder.HtmlToText(html);
         foreach (var a in message.Attachments)
         {
@@ -225,6 +227,15 @@ public static class MimeMail
             }
         }
         m.Body = builder.ToMessageBody();
+        foreach (var text in m.BodyParts.OfType<TextPart>().Where(t => !t.IsAttachment))
+            text.ContentType.Charset = "utf-8";
+        // 7-bit transfer encodings (quoted-printable/base64) instead of raw 8-bit UTF-8: Thunderbird does the
+        // same, and Exchange's MIME conversion and older SMTP relays mangle 8-bit bodies without 8BITMIME.
+        m.Prepare(EncodingConstraint.SevenBit);
         return m;
     }
+
+    internal static string Utf8HtmlDocument(string html) =>
+        "<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"></head><body>" +
+        MessageHtmlBuilder.BodyFragment(html) + "</body></html>";
 }

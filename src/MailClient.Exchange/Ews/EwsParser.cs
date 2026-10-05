@@ -58,9 +58,6 @@ internal static class EwsParser
     public static List<EmailAddress> ParseMailboxList(XElement? list) =>
         list?.Elements(T + "Mailbox").Select(ParseMailbox).OfType<EmailAddress>().ToList() ?? new();
 
-    public static List<EmailAddress> ParseAttendees(XElement? list) =>
-        list?.Elements(T + "Attendee").Select(a => ParseMailbox(a.Element(T + "Mailbox"))).OfType<EmailAddress>().ToList() ?? new();
-
     public static Importance ParseImportance(string? s) => s switch
     {
         "Low" => Importance.Low,
@@ -132,7 +129,7 @@ internal static class EwsParser
         // Meeting requests carry calendar information on the message itself.
         if (e.Name.LocalName is "MeetingRequest" or "MeetingCancellation" || e.Element(T + "Start") != null)
         {
-            m.Meeting = ParseCalendarItem(e);
+            m.Meeting = ParseMeeting(e);
             if (m.Meeting.Organizer == null) m.Meeting.Organizer = m.From;
         }
         return m;
@@ -160,32 +157,17 @@ internal static class EwsParser
         return result;
     }
 
-    public static CalendarEvent ParseCalendarItem(XElement e)
+    public static MeetingInfo ParseMeeting(XElement e) => new()
     {
-        var id = e.Element(T + "ItemId");
-        var body = e.Element(T + "Body");
-        return new CalendarEvent
-        {
-            Id = (string?)id?.Attribute("Id") ?? "",
-            ChangeKey = (string?)id?.Attribute("ChangeKey") ?? "",
-            Subject = e.Val("Subject") ?? "",
-            Location = e.Val("Location") ?? "",
-            Start = ParseDate(e.Val("Start")),
-            End = ParseDate(e.Val("End")),
-            IsAllDay = ParseBool(e.Val("IsAllDayEvent")),
-            Organizer = ParseMailbox(e.Element(T + "Organizer")),
-            RequiredAttendees = ParseAttendees(e.Element(T + "RequiredAttendees")),
-            OptionalAttendees = ParseAttendees(e.Element(T + "OptionalAttendees")),
-            FreeBusy = Enum.TryParse<FreeBusyStatus>(e.Val("LegacyFreeBusyStatus"), out var fb) ? fb : FreeBusyStatus.Busy,
-            MyResponse = Enum.TryParse<ResponseStatus>(e.Val("MyResponseType"), out var rs) ? rs : ResponseStatus.Unknown,
-            IsMeeting = ParseBool(e.Val("IsMeeting")) || e.Name.LocalName.StartsWith("Meeting", StringComparison.Ordinal),
-            IsCancelled = ParseBool(e.Val("IsCancelled")),
-            IsRecurring = ParseBool(e.Val("IsRecurring")) || e.Val("CalendarItemType") is "Occurrence" or "Exception",
-            Body = body?.Value ?? "",
-            ReminderSet = ParseBool(e.Val("ReminderIsSet")),
-            ReminderMinutes = ParseInt(e.Val("ReminderMinutesBeforeStart")),
-        };
-    }
+        Subject = e.Val("Subject") ?? "",
+        Location = e.Val("Location") ?? "",
+        Start = ParseDate(e.Val("Start")),
+        End = ParseDate(e.Val("End")),
+        IsAllDay = ParseBool(e.Val("IsAllDayEvent")),
+        Organizer = ParseMailbox(e.Element(T + "Organizer")),
+        MyResponse = Enum.TryParse<ResponseStatus>(e.Val("MyResponseType"), out var rs) ? rs : ResponseStatus.Unknown,
+        IsCancelled = ParseBool(e.Val("IsCancelled")),
+    };
 
     public static Contact ParseContact(XElement e)
     {
@@ -219,23 +201,6 @@ internal static class EwsParser
 
     public static string StripSmtpPrefix(string s) =>
         s.StartsWith("smtp:", StringComparison.OrdinalIgnoreCase) ? s[5..] : s;
-
-    public static TaskItem ParseTask(XElement e)
-    {
-        var id = e.Element(T + "ItemId");
-        return new TaskItem
-        {
-            Id = (string?)id?.Attribute("Id") ?? "",
-            ChangeKey = (string?)id?.Attribute("ChangeKey") ?? "",
-            Subject = e.Val("Subject") ?? "",
-            DueDate = ParseDateOrNull(e.Val("DueDate")),
-            StartDate = ParseDateOrNull(e.Val("StartDate")),
-            Status = Enum.TryParse<TaskItemStatus>(e.Val("Status"), out var st) ? st : TaskItemStatus.NotStarted,
-            PercentComplete = double.TryParse(e.Val("PercentComplete"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pc) ? (int)pc : 0,
-            Importance = ParseImportance(e.Val("Importance")),
-            Body = e.Element(T + "Body")?.Value ?? "",
-        };
-    }
 
     /// <summary>Parses one ResolveNames resolution (mailbox + optional contact data).</summary>
     public static Contact ParseResolution(XElement resolution)

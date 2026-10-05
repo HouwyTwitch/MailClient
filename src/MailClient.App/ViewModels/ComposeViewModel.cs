@@ -268,12 +268,18 @@ public sealed partial class ComposeViewModel : ObservableObject
         {
             result.AddRange((await SelectedSession.Provider.ResolveNamesAsync(text, ct)).Where(c => c.PrimaryEmail.Length > 0));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // The user kept typing (or the window closed): a newer lookup supersedes this one.
+            if (ct.IsCancellationRequested) return Array.Empty<Contact>();
+        }
+        catch (Exception ex)
         {
             Log.Warn($"Поиск в адресной книге не удался: {ex.Message}");
         }
+        if (ct.IsCancellationRequested) return Array.Empty<Contact>();
         // Plus people from the user's own correspondence (the only source for IMAP accounts).
-        var local = await Task.Run(() => SelectedSession.Cache.SuggestAddresses(text, 10), ct);
+        var local = await Task.Run(() => SelectedSession.Cache.SuggestAddresses(text, 10));
         foreach (var a in local)
         {
             if (result.Any(c => c.EmailAddresses.Contains(a.Address, StringComparer.OrdinalIgnoreCase))) continue;

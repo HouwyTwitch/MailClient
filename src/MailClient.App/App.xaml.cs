@@ -129,6 +129,13 @@ public partial class App : Application
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        if (e.Exception is OperationCanceledException)
+        {
+            // A superseded or aborted operation (typing during an address lookup, closing a window): not an error.
+            Log.Info($"Операция отменена: {e.Exception.TargetSite?.DeclaringType?.Name}");
+            e.Handled = true;
+            return;
+        }
         Log.Error("Необработанное исключение в интерфейсе", e.Exception);
         Dialogs.Error($"Произошла непредвиденная ошибка. Подробности записаны в журнал:\n{Log.CurrentFile}\n\n{e.Exception.Message}");
         e.Handled = true;
