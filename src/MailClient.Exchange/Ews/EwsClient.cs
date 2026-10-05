@@ -32,6 +32,9 @@ public sealed class EwsResponseException : MailServiceException
         "ErrorDeleteDistinguishedFolder" or "ErrorCannotDeleteFolder" => "Системную папку удалить нельзя.",
         "ErrorMoveDistinguishedFolder" => "Системную папку переместить нельзя.",
         "ErrorInvalidServerVersion" => "Сервер не поддерживает выбранную версию протокола. Выберите более раннюю версию Exchange в настройках учётной записи.",
+        "ErrorInboxRulesValidationError" => $"Сервер не принял правило: {serverText}",
+        "ErrorOutlookRuleBlobExists" => "Правила были изменены в Outlook. Откройте список правил заново и сохраните ещё раз.",
+        "ErrorRuleNotFound" => "Правило уже удалено на сервере. Откройте список правил заново.",
         "ErrorIrresolvableConflict" or "ErrorChangeKeyRequiredForWriteOperations" => "Объект был изменён на сервере. Обновите папку и повторите действие.",
         _ => $"{serverText} ({code})",
     };
@@ -53,6 +56,7 @@ public sealed class EwsClient : IDisposable
     {
         "GetFolder", "FindFolder", "SyncFolderHierarchy", "FindItem", "GetItem", "SyncFolderItems",
         "GetAttachment", "ResolveNames", "GetUserOofSettingsRequest", "ExpandDL", "GetUserAvailabilityRequest",
+        "GetInboxRules",
     };
 
     private readonly HttpClient _http;

@@ -12,7 +12,9 @@ public enum ProviderCapabilities
     Directory = 16,
     /// <summary>Accept/decline meeting invitations received by mail.</summary>
     MeetingResponses = 32,
-    All = Contacts | OutOfOffice | Directory | MeetingResponses,
+    /// <summary>Server-side rules that forward or redirect incoming mail.</summary>
+    ForwardingRules = 64,
+    All = Contacts | OutOfOffice | Directory | MeetingResponses | ForwardingRules,
 }
 
 /// <summary>
@@ -79,6 +81,17 @@ public interface IMailProvider : IDisposable
 
     // ---- Meeting invitations (received by mail) ----
     Task RespondToMeetingAsync(string itemId, MeetingResponse response, string? comment = null, CancellationToken ct = default);
+
+    // ---- Forwarding rules ----
+    Task<ForwardingRuleSet> GetForwardingRulesAsync(CancellationToken ct = default);
+    /// <summary>
+    /// Makes the server's rules match <paramref name="rules"/> (in this order): new ones (empty id) are created,
+    /// changed ones updated, missing ones deleted.
+    /// </summary>
+    /// <param name="rules">All rules of the mailbox in the order they apply.</param>
+    /// <param name="replaceOutlookRules">Exchange: allowed to replace Outlook's copy of the rules (see <see cref="ForwardingRuleSet.OutlookRulesPresent"/>).</param>
+    /// <param name="ct">Cancels the request.</param>
+    Task SaveForwardingRulesAsync(IReadOnlyList<ForwardingRule> rules, bool replaceOutlookRules, CancellationToken ct = default);
 
     // ---- Automatic replies ----
     Task<OofSettings> GetOutOfOfficeAsync(CancellationToken ct = default);

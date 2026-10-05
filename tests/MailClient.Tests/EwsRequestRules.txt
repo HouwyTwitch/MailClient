@@ -38,6 +38,7 @@ m:FolderShape = t:BaseShape! t:AdditionalProperties
 m:Folders = t:Folder!*
 m:GetAttachment = m:AttachmentShape m:AttachmentIds!
 m:GetFolder = m:FolderShape! m:FolderIds!
+m:GetInboxRules = m:MailboxSmtpAddress
 m:GetItem = m:ItemShape! m:ItemIds!
 m:GetUserOofSettingsRequest = t:Mailbox!
 m:GetUserOofSettingsRequest/t:Mailbox = t:Name t:Address!
@@ -50,6 +51,7 @@ m:ItemIds = t:ItemId!*
 m:ItemShape = t:BaseShape! t:IncludeMimeContent t:BodyType t:AdditionalProperties
 m:Items = (t:Message | t:Contact | t:AcceptItem | t:TentativelyAcceptItem | t:DeclineItem)!*
 m:Items/t:Message = t:MimeContent t:ItemId t:Body t:Categories t:ExtendedProperty* t:Flag t:BccRecipients t:IsDeliveryReceiptRequested t:InternetMessageId t:IsRead
+m:MailboxSmtpAddress : text
 m:MarkAllItemsAsRead = m:ReadFlag! m:SuppressReadReceipts! m:FolderIds!
 m:MarkAsJunk = m:ItemIds!
   @IsJunk! : boolean
@@ -57,6 +59,7 @@ m:MarkAsJunk = m:ItemIds!
 m:MaxChangesReturned : integer
 m:MoveFolder = m:ToFolderId! m:FolderIds!
 m:MoveItem = m:ToFolderId! m:ItemIds! m:ReturnNewItemIds
+m:Operations = (t:CreateRuleOperation | t:SetRuleOperation | t:DeleteRuleOperation)!*
 m:ParentFolderId = (t:FolderId | t:DistinguishedFolderId)!
 m:ParentFolderId/t:DistinguishedFolderId = t:Mailbox
   @ChangeKey : text
@@ -67,6 +70,7 @@ m:ParentFolderIds/t:DistinguishedFolderId = t:Mailbox
   @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
 m:QueryString : text
 m:ReadFlag : boolean
+m:RemoveOutlookRuleBlob : boolean
 m:ResolveNames = m:ParentFolderIds m:UnresolvedEntry!
   @ReturnFullContactData! : boolean
   @SearchScope : ActiveDirectoryContacts | Contacts
@@ -93,10 +97,12 @@ m:ToFolderId/t:DistinguishedFolderId = t:Mailbox
   @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
 m:UnresolvedEntry : text
 m:UpdateFolder = m:FolderChanges!
+m:UpdateInboxRules = m:MailboxSmtpAddress m:RemoveOutlookRuleBlob m:Operations!
 m:UpdateItem = m:SavedItemFolderId m:ItemChanges!
   @ConflictResolution! : AlwaysOverwrite
   @MessageDisposition : SaveOnly | SendAndSaveCopy | SendOnly
 t:AcceptItem = t:Body t:BccRecipients t:IsDeliveryReceiptRequested t:ReferenceItemId
+t:Actions = t:AssignCategories t:CopyToFolder t:Delete t:ForwardAsAttachmentToRecipients t:ForwardToRecipients t:MarkImportance t:MarkAsRead t:MoveToFolder t:PermanentDelete t:RedirectToRecipients t:SendSMSAlertToRecipients t:ServerReplyWithMessage t:StopProcessingRules
 t:AdditionalProperties = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!*
 t:Address : text
 t:AttachmentId = 
@@ -109,14 +115,20 @@ t:Body : text
 t:BodyType : Best | HTML | Text
 t:Categories = t:String*
 t:CompanyName : text
+t:Conditions = t:Categories t:ContainsBodyStrings t:ContainsHeaderStrings t:ContainsRecipientStrings t:ContainsSenderStrings t:ContainsSubjectOrBodyStrings t:ContainsSubjectStrings t:FlaggedForAction t:FromAddresses t:FromConnectedAccounts t:HasAttachments t:Importance t:IsApprovalRequest t:IsAutomaticForward t:IsAutomaticReply t:IsEncrypted t:IsMeetingRequest t:IsMeetingResponse t:IsNDR t:IsPermissionControlled t:IsReadReceipt t:IsSigned t:IsVoicemail t:ItemClasses t:MessageClassifications t:NotSentToMe t:SentCcMe t:SentOnlyToMe t:SentToAddresses t:SentToMe t:SentToOrCcMe t:Sensitivity t:WithinDateRange t:WithinSizeRange
 t:Constant = 
   @Value! : text
 t:Contact = t:MimeContent t:ItemId t:Body t:Categories t:ExtendedProperty* t:Flag t:DisplayName t:GivenName t:CompanyName t:EmailAddresses t:PhoneNumbers t:Department t:JobTitle t:Surname
 t:Contains = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!* t:Constant!
   @ContainmentComparison : IgnoreCase
   @ContainmentMode : Substring
+t:ContainsBodyStrings = t:String*
+t:ContainsSubjectStrings = t:String*
+t:CreateRuleOperation = t:Rule!
 t:DeclineItem = t:Body t:BccRecipients t:IsDeliveryReceiptRequested t:ReferenceItemId
+t:Delete : boolean
 t:DeleteItemField = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!*
+t:DeleteRuleOperation = t:RuleId!
 t:Department : text
 t:DisplayName : text
 t:DistinguishedFolderId/t:Mailbox = t:Name t:EmailAddress t:ItemId
@@ -126,6 +138,7 @@ t:EmailAddresses = t:Entry!*
 t:EmailAddresses/t:Entry : text
   @Key! : EmailAddress1
 t:EndTime : datetime
+t:Exceptions = t:Categories t:ContainsBodyStrings t:ContainsHeaderStrings t:ContainsRecipientStrings t:ContainsSenderStrings t:ContainsSubjectOrBodyStrings t:ContainsSubjectStrings t:FlaggedForAction t:FromAddresses t:FromConnectedAccounts t:HasAttachments t:Importance t:IsApprovalRequest t:IsAutomaticForward t:IsAutomaticReply t:IsEncrypted t:IsMeetingRequest t:IsMeetingResponse t:IsNDR t:IsPermissionControlled t:IsReadReceipt t:IsSigned t:IsVoicemail t:ItemClasses t:MessageClassifications t:NotSentToMe t:SentCcMe t:SentOnlyToMe t:SentToAddresses t:SentToMe t:SentToOrCcMe t:Sensitivity t:WithinDateRange t:WithinSizeRange
 t:ExtendedFieldURI = 
   @PropertyTag : proptag
   @PropertyType! : Boolean | Error | Integer | String
@@ -150,6 +163,12 @@ t:FolderClass : text
 t:FolderId = 
   @ChangeKey : text
   @Id! : text
+t:ForwardAsAttachmentToRecipients = t:Address*
+t:ForwardAsAttachmentToRecipients/t:Address = t:Name t:EmailAddress t:RoutingType t:MailboxType t:ItemId t:OriginalDisplayName
+t:ForwardToRecipients = t:Address*
+t:ForwardToRecipients/t:Address = t:Name t:EmailAddress t:RoutingType t:MailboxType t:ItemId t:OriginalDisplayName
+t:FromAddresses = t:Address*
+t:FromAddresses/t:Address = t:Name t:EmailAddress t:RoutingType t:MailboxType t:ItemId t:OriginalDisplayName
 t:GivenName : text
 t:IncludeMimeContent : boolean
 t:IndexedFieldURI = 
@@ -159,6 +178,7 @@ t:InternalReply = t:Message
 t:InternalReply/t:Message : text
 t:InternetMessageId : text
 t:IsDeliveryReceiptRequested : boolean
+t:IsEnabled : boolean
 t:IsRead : boolean
 t:ItemChange = t:ItemId! t:Updates!
 t:ItemChange/t:Updates = (t:SetItemField | t:DeleteItemField)!*
@@ -166,22 +186,33 @@ t:ItemId =
   @ChangeKey : text
   @Id! : text
 t:JobTitle : text
+t:MailboxType : Contact | Mailbox | OneOff | PrivateDL | PublicDL | PublicFolder | Unknown
 t:MimeContent : text
+t:MoveToFolder = (t:FolderId | t:DistinguishedFolderId)!
 t:Name : text
 t:OofState : Disabled | Enabled | Scheduled
 t:Or = (t:Contains | t:Or)!*
 t:PhoneNumbers = t:Entry!*
 t:PhoneNumbers/t:Entry : text
   @Key! : BusinessPhone | HomePhone | MobilePhone
+t:Priority : integer
+t:RedirectToRecipients = t:Address*
+t:RedirectToRecipients/t:Address = t:Name t:EmailAddress t:RoutingType t:MailboxType t:ItemId t:OriginalDisplayName
 t:ReferenceItemId = 
   @ChangeKey : text
   @Id! : text
 t:RequestServerVersion = 
   @Version! : Exchange2007_SP1 | Exchange2010_SP2 | Exchange2013 | Exchange2013_SP1 | Exchange2016
+t:RoutingType : text
+t:Rule = t:RuleId t:DisplayName! t:Priority! t:IsEnabled! t:IsNotSupported t:IsInError t:Conditions t:Exceptions t:Actions
+t:RuleId : text
+t:SentToMe : boolean
 t:SetFolderField = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!* t:Folder!
 t:SetItemField = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!* (t:Message | t:Contact)!
 t:SetItemField/t:Message = t:MimeContent t:ItemId t:Body t:Categories t:ExtendedProperty* t:Flag t:BccRecipients t:IsDeliveryReceiptRequested t:InternetMessageId t:IsRead
+t:SetRuleOperation = t:Rule!
 t:StartTime : datetime
+t:StopProcessingRules : boolean
 t:String : text
 t:Surname : text
 t:TentativelyAcceptItem = t:Body t:BccRecipients t:IsDeliveryReceiptRequested t:ReferenceItemId

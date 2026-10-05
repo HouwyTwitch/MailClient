@@ -89,6 +89,8 @@ public sealed class AccountSettings
     public string ImapHost { get; set; } = "";
     public int ImapPort { get; set; } = 993;
     public ConnectionSecurity ImapSecurity { get; set; } = ConnectionSecurity.SslOnConnect;
+    /// <summary>ManageSieve port for server-side rules (forwarding) on IMAP servers.</summary>
+    public int SievePort { get; set; } = 4190;
     public string SmtpHost { get; set; } = "";
     public int SmtpPort { get; set; } = 465;
     public ConnectionSecurity SmtpSecurity { get; set; } = ConnectionSecurity.SslOnConnect;

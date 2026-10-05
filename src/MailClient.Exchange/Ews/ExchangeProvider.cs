@@ -1070,6 +1070,43 @@ public sealed class ExchangeProvider : IMailProvider
         EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
     }
 
+    // ===================================================================== forwarding rules
+
+    private XElement? RulesMailbox => SharedMailbox is { } shared ? new XElement(M + "MailboxSmtpAddress", shared) : null;
+
+    private async Task<(List<XElement> Rules, bool OutlookBlob)> GetInboxRulesAsync(CancellationToken ct)
+    {
+        var response = await _ews.SendAsync(new XElement(M + "GetInboxRules", RulesMailbox), ct).ConfigureAwait(false);
+        EwsClient.ThrowOnError(response);
+        var rules = response.Element(M + "InboxRules")?.Elements(T + "Rule")
+            .OrderBy(r => ParseInt(r.Val("Priority"))).ToList() ?? new();
+        return (rules, ParseBool(response.Element(M + "OutlookRuleBlobExists")?.Value));
+    }
+
+    public async Task<ForwardingRuleSet> GetForwardingRulesAsync(CancellationToken ct = default)
+    {
+        var (rules, blob) = await GetInboxRulesAsync(ct).ConfigureAwait(false);
+        return new ForwardingRuleSet { Rules = rules.Select(InboxRules.Parse).ToList(), OutlookRulesPresent = blob };
+    }
+
+    public async Task SaveForwardingRulesAsync(IReadOnlyList<ForwardingRule> rules, bool replaceOutlookRules, CancellationToken ct = default)
+    {
+        // Compared with what the server has now, so changes made meanwhile in Outlook or OWA to other rules survive.
+        var (current, _) = await GetInboxRulesAsync(ct).ConfigureAwait(false);
+        var ops = InboxRules.Operations(current, rules);
+        if (ops.Count == 0) return;
+        var request = new XElement(M + "UpdateInboxRules",
+            RulesMailbox,
+            Bool(M + "RemoveOutlookRuleBlob", replaceOutlookRules),
+            new XElement(M + "Operations", ops));
+        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+        if ((string?)response.Attribute("ResponseClass") == "Error" &&
+            response.Element(M + "ResponseCode")?.Value is "ErrorInboxRulesValidationError" &&
+            InboxRules.ValidationErrors(response) is { Length: > 0 } details)
+            throw new EwsResponseException("ErrorInboxRulesValidationError", details);
+        EwsClient.ThrowOnError(response);
+    }
+
     // ===================================================================== out of office
 
     private string OofMailbox => SharedMailbox ?? Account.EmailAddress;
