@@ -74,14 +74,14 @@ public static class RuText
 
     public static string FolderIcon(MailFolder f) => f.WellKnown switch
     {
-        WellKnownFolder.Inbox => "",
-        WellKnownFolder.Drafts => "",
-        WellKnownFolder.SentItems => "",
-        WellKnownFolder.DeletedItems => "",
-        WellKnownFolder.JunkEmail => "",
-        WellKnownFolder.Outbox => "",
-        WellKnownFolder.Root => "",
-        _ => "",
+        WellKnownFolder.Inbox => "\uE715",
+        WellKnownFolder.Drafts => "\uE70F",
+        WellKnownFolder.SentItems => "\uE724",
+        WellKnownFolder.DeletedItems => "\uE74D",
+        WellKnownFolder.JunkEmail => "\uE7BA",
+        WellKnownFolder.Outbox => "\uE8B5",
+        WellKnownFolder.Root => "\uE77B",
+        _ => "\uE8B7",
     };
 
     public static int FolderOrder(MailFolder f) => f.WellKnown switch

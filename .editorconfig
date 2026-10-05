@@ -19,8 +19,9 @@ dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1861.severity = none
 
 [*.cs]
-# Dead code fails the build: unused usings, private members, unread fields, unused parameters.
+# Dead code fails the build: unused usings, private members, unread fields, unused parameters and values.
 dotnet_diagnostic.IDE0005.severity = warning
 dotnet_diagnostic.IDE0051.severity = warning
 dotnet_diagnostic.IDE0052.severity = warning
 dotnet_diagnostic.IDE0060.severity = warning
+dotnet_diagnostic.IDE0059.severity = warning

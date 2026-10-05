@@ -18,11 +18,11 @@ public sealed partial class AttachmentItemViewModel : ObservableObject
     public string SizeText => Info.Size > 0 ? RuText.Size(Info.Size) : "";
     public string Icon => Path.GetExtension(Info.Name).ToLowerInvariant() switch
     {
-        ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".tif" or ".tiff" or ".webp" => "",
-        ".zip" or ".rar" or ".7z" or ".gz" or ".tar" => "",
-        ".eml" or ".msg" => "",
-        ".ics" => "",
-        _ => "",
+        ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".tif" or ".tiff" or ".webp" => "\uEB9F",
+        ".zip" or ".rar" or ".7z" or ".gz" or ".tar" => "\uF012",
+        ".eml" or ".msg" => "\uE715",
+        ".ics" => "\uE787",
+        _ => "\uE8A5",
     };
 }
 
@@ -96,7 +96,9 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
     public bool IsMeetingRequest => Message.IsMeetingRequest && Message.Meeting != null;
     public bool IsMeetingCancellation => Message.IsMeetingCancellation;
     public string MeetingText => Message.Meeting is { } m
-        ? $"{m.Start.ToLocalTime().ToString("dddd, d MMMM, HH:mm", RuText.Culture)} – {m.End.ToLocalTime():HH:mm}" +
+        ? (m.IsAllDay
+              ? m.Start.ToLocalTime().ToString("dddd, d MMMM", RuText.Culture) + ", весь день"
+              : $"{m.Start.ToLocalTime().ToString("dddd, d MMMM, HH:mm", RuText.Culture)} – {m.End.ToLocalTime().ToString("HH:mm", RuText.Culture)}") +
           (string.IsNullOrWhiteSpace(m.Location) ? "" : $" · {m.Location}")
         : "";
 
@@ -225,12 +227,7 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
         }
     }
 
-    public static string SafeFileName(string name)
-    {
-        var invalid = Path.GetInvalidFileNameChars();
-        var clean = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim().TrimEnd('.');
-        return clean.Length == 0 ? "attachment" : clean;
-    }
+    public static string SafeFileName(string name) => TextUtil.SafeFileName(name);
 
     private static string UniquePath(string path)
     {

@@ -168,7 +168,8 @@ public sealed partial class ComposeViewModel : ObservableObject
         var body = draft.BodyIsHtml ? draft.Body : MessageHtmlBuilder.TextToHtml(draft.Body);
         if (draft.Attachments.Count > 0)
         {
-            var files = await session.Provider.GetAttachmentsAsync(draft.Attachments.Where(a => !a.IsItemAttachment).Select(a => a.Id));
+            // Every attachment comes back, attached messages (.eml) included, so re-saving or sending loses nothing.
+            var files = await session.Provider.GetAttachmentsAsync(draft.Attachments.Select(a => a.Id));
             foreach (var f in files)
             {
                 // Inline images go back into the editor as data: URIs; they are re-extracted on send.

@@ -23,7 +23,7 @@ public sealed partial class FolderNodeViewModel : ObservableObject
     public ObservableCollection<FolderNodeViewModel> Children { get; } = new();
 
     public string Name => IsAccountRoot ? Session.Settings.EffectiveDisplayName : RuText.FolderName(Folder);
-    public string Icon => IsAccountRoot ? "" : RuText.FolderIcon(Folder);
+    public string Icon => IsAccountRoot ? "\uE77B" : RuText.FolderIcon(Folder);
     public bool IsWellKnown => Folder.WellKnown != WellKnownFolder.None;
     public bool CanModify => !IsAccountRoot && !IsWellKnown;
 

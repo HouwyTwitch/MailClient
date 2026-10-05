@@ -19,6 +19,9 @@ public sealed class LocalCache
     /// server. Folders, the message list and sync states are kept.
     /// </summary>
     internal const int BodyFormatVersion = 2;
+
+    /// <summary>Downloaded message bodies not opened for this long are dropped (re-read from the server when needed).</summary>
+    internal static readonly TimeSpan BodyRetention = TimeSpan.FromDays(60);
     private readonly string _connectionString;
     private static readonly JsonSerializerOptions JsonOptions = new() { IncludeFields = false };
 
@@ -37,6 +40,9 @@ public sealed class LocalCache
         }.ToString();
         Initialize();
     }
+
+    /// <summary>Closes pooled connections so database files can be deleted (Windows keeps open files locked).</summary>
+    public static void ReleaseFiles() => SqliteConnection.ClearAllPools();
 
     private SqliteConnection Open()
     {
@@ -79,6 +85,11 @@ public sealed class LocalCache
             Exec(c, "DELETE FROM bodies;");
             Exec(c, $"PRAGMA application_id={BodyFormatVersion};");
         }
+        // Keep the cache bounded: every opened message would otherwise stay here forever.
+        using var prune = c.CreateCommand();
+        prune.CommandText = "DELETE FROM bodies WHERE cached_at < $t";
+        prune.Parameters.AddWithValue("$t", (DateTimeOffset.UtcNow - BodyRetention).ToUnixTimeSeconds());
+        prune.ExecuteNonQuery();
     }
 
     private static void Exec(SqliteConnection c, string sql)
@@ -364,8 +375,10 @@ public sealed class LocalCache
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT json FROM bodies WHERE id=$id";
+        // Reading marks the body as recently used, so messages people keep opening are not pruned.
+        cmd.CommandText = "UPDATE bodies SET cached_at=$t WHERE id=$id RETURNING json";
         cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         return cmd.ExecuteScalar() is string json ? JsonSerializer.Deserialize<MailMessage>(json, JsonOptions) : null;
     }
 

@@ -168,6 +168,7 @@ public class ImapIntegrationTests
             Action = ComposeAction.Reply,
             ReferenceItemId = originalId,
             To = { new EmailAddress("Петров Пётр", "petrov@test.ru") },
+            Bcc = { new EmailAddress("Сидоров Сидор", "sidorov@test.ru") },
             Subject = "RE: Вопрос по договору",
             Body = "<p>Сроки — до пятницы.</p>",
             Importance = Importance.High,
@@ -187,10 +188,15 @@ public class ImapIntegrationTests
         Assert.Contains("Исходное сообщение", mime.HtmlBody);
         Assert.Equal("Договор №5.pdf", mime.Attachments.OfType<MimePart>().Single().FileName);
 
-        // The SMTP server received it too.
+        // The sender's copy keeps the Bcc recipient.
+        Assert.Equal("sidorov@test.ru", mime.Bcc.Mailboxes.Single().Address);
+
+        // The SMTP server received it, Bcc recipient included in the envelope, without a Bcc header in the text.
         var maildir = Path.Combine(Env("SMTP_TEST_MAILDIR"), "new");
         var messageId = Assert.IsType<string>(mime.MessageId);
-        Assert.Contains(Directory.GetFiles(maildir), f => File.ReadAllText(f).Contains(messageId));
+        var received = Directory.GetFiles(maildir).Select(File.ReadAllText).Single(t => t.Contains(messageId, StringComparison.Ordinal));
+        Assert.Contains("sidorov@test.ru", received.Split("\n\n")[0]);           // X-RcptTo added by the test SMTP server
+        Assert.DoesNotContain("\nBcc:", received, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -95,6 +95,28 @@ public sealed class LocalCacheTests : IDisposable
     }
 
     [Fact]
+    public void Bodies_not_opened_for_a_long_time_are_pruned_at_startup()
+    {
+        var cache = new LocalCache(_path);
+        cache.PutCachedMessage(new MailMessage { Id = "old", Subject = "старое" });
+        cache.PutCachedMessage(new MailMessage { Id = "fresh", Subject = "свежее" });
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_path}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "UPDATE bodies SET cached_at = $t WHERE id = 'old'";
+            cmd.Parameters.AddWithValue("$t", (DateTimeOffset.UtcNow - LocalCache.BodyRetention - TimeSpan.FromDays(1)).ToUnixTimeSeconds());
+            cmd.ExecuteNonQuery();
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        var reopened = new LocalCache(_path);
+        Assert.Null(reopened.GetCachedMessage("old"));
+        Assert.Equal("свежее", reopened.GetCachedMessage("fresh")!.Subject);
+    }
+
+    [Fact]
     public void Bodies_decoded_by_an_older_version_are_dropped_but_the_list_is_kept()
     {
         var cache = new LocalCache(_path);
@@ -311,4 +333,25 @@ public class OneLineTests
     [InlineData(null, 10, "")]
     public void Collapses_to_a_single_line(string? input, int max, string expected) =>
         Assert.Equal(expected, MailClient.Core.Rendering.TextUtil.OneLine(input, max));
+}
+
+public class FileNameTests
+{
+    [Theory]
+    [InlineData("Отчёт: итоги/2026?.xlsx", "Отчёт_ итоги_2026_.xlsx")]
+    [InlineData("CON.txt", "_CON.txt")]
+    [InlineData("nul", "_nul")]
+    [InlineData("  точка в конце. ", "точка в конце")]
+    [InlineData("", "attachment")]
+    [InlineData("\t\n", "attachment")]
+    public void File_names_are_valid_on_windows(string input, string expected) =>
+        Assert.Equal(expected, TextUtil.SafeFileName(input));
+
+    [Fact]
+    public void Long_names_keep_their_extension()
+    {
+        var name = TextUtil.SafeFileName(new string('я', 400) + ".docx");
+        Assert.Equal(150, name.Length);
+        Assert.EndsWith(".docx", name, StringComparison.Ordinal);
+    }
 }

@@ -295,11 +295,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 if (Messages.Count == 0) ListStatus = "Загрузка писем…";
                 await folder.Session.Sync.PrimeFolderAsync(folder.Id, 100);
                 await folder.Session.Sync.SyncFolderAsync(folder.Id);
+                // A sync without changes raises no reload: settle the "loading" text for an empty folder here.
+                if (SelectedFolder == folder && !IsSearchResult && Messages.Count == 0) ListStatus = "В папке нет писем";
             }
             catch (Exception ex)
             {
                 Log.Warn($"Папка {folder.Name} не синхронизирована: {MailClient.Core.Diagnostics.MailLog.Describe(ex)}");
-                if (Messages.Count == 0) ListStatus = "Нет связи с сервером. " + RuText.Error(ex);
+                if (SelectedFolder == folder && Messages.Count == 0) ListStatus = "Нет связи с сервером. " + RuText.Error(ex);
             }
         }
     }
@@ -314,16 +316,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async void FlushReloads()
     {
         _reloadTimer.Stop();
-        var folders = _pendingReloadFolders.ToList();
+        var folders = new HashSet<string>(_pendingReloadFolders);
         _pendingReloadFolders.Clear();
-        foreach (var node in Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => folders.Contains(n.Id)))
+        try
         {
-            var cached = node.Session.Cache.GetFolders().FirstOrDefault(f => f.Id == node.Id);
-            if (cached != null) node.Unread = cached.UnreadCount;
+            foreach (var root in Roots)
+            {
+                var counts = root.Session.Cache.GetFolders().ToDictionary(f => f.Id, f => f.UnreadCount);
+                foreach (var node in root.SelfAndDescendants().Where(n => folders.Contains(n.Id)))
+                    if (counts.TryGetValue(node.Id, out var unread)) node.Unread = unread;
+            }
+            UpdateUnreadTotals();
+            if (SelectedFolder != null && folders.Contains(SelectedFolder.Id) && !IsSearchResult)
+                await ReloadMessagesAsync();
         }
-        UpdateUnreadTotals();
-        if (SelectedFolder != null && folders.Contains(SelectedFolder.Id) && !IsSearchResult)
-            await ReloadMessagesAsync();
+        catch (Exception ex)
+        {
+            Log.Error("Не удалось обновить список писем", ex);
+        }
     }
 
     private async Task ReloadMessagesAsync()
@@ -334,7 +344,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var list = await Task.Run(() => folder.Session.Cache.GetMessages(folder.Id, 0, count));
         if (SelectedFolder != folder || IsSearchResult) return;
         ApplyMessages(list, folder.ShowsRecipients);
-        var total = folder.Folder.TotalCount;
         ListStatus = Messages.Count == 0 ? "В папке нет писем" : "";
     }
 
@@ -511,14 +520,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await RunAsync("Не удалось отметить папку как прочитанную", async () =>
         {
             // One server call where supported (Exchange 2013+: MarkAllItemsAsRead).
+            List<string> UnreadIds() =>
+                folder.Session.Cache.GetMessages(folder.Id, 0, int.MaxValue).Where(m => !m.IsRead).Select(m => m.Id).ToList();
             if (!await folder.Session.Provider.MarkAllReadAsync(folder.Id, true))
             {
                 await folder.Session.Sync.SyncFolderAsync(folder.Id);
-                var toMark = folder.Session.Cache.GetMessages(folder.Id, 0, int.MaxValue).Where(m => !m.IsRead).Select(m => m.Id).ToList();
+                var toMark = await Task.Run(UnreadIds);
                 if (toMark.Count > 0) await folder.Session.Provider.SetReadStateAsync(toMark, true);
             }
-            var unread = folder.Session.Cache.GetMessages(folder.Id, 0, int.MaxValue).Where(m => !m.IsRead).Select(m => m.Id).ToList();
-            folder.Session.Cache.SetReadState(unread, true);
+            await Task.Run(() => folder.Session.Cache.SetReadState(UnreadIds(), true));
             folder.Unread = 0;
             foreach (var m in Messages) m.IsRead = true;
             UpdateUnreadTotals();
@@ -931,6 +941,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var dlg = new OpenFileDialog { Title = "Импорт писем", Filter = "Письма (*.eml)|*.eml", Multiselect = true };
         if (dlg.ShowDialog() != true) return;
         int ok = 0;
+        var failed = new List<string>();
         foreach (var file in dlg.FileNames)
         {
             try
@@ -940,10 +951,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                Dialogs.Error(ex, $"Не удалось импортировать «{Path.GetFileName(file)}»");
+                Log.Warn($"Импорт «{file}» не выполнен: {ex.Message}");
+                failed.Add($"• {Path.GetFileName(file)}: {RuText.Error(ex)}");
             }
         }
         StatusText = $"Импортировано: {RuText.Count(ok, "письмо", "письма", "писем")}";
+        if (failed.Count > 0)
+            Dialogs.Error($"Не удалось импортировать {RuText.Count(failed.Count, "файл", "файла", "файлов")}:\n\n" +
+                          string.Join("\n", failed.Take(10)) + (failed.Count > 10 ? "\n…" : ""));
         folder.Session.SyncNow();
     }
 
@@ -1005,6 +1020,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _reloadTimer.Stop();
+        _markReadTimer.Stop();
+        _previewCts?.Cancel();
+        _previewCts?.Dispose();
         foreach (var s in _sessions) s.Dispose();
         _sessions.Clear();
     }

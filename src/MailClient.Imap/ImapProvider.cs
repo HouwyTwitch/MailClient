@@ -706,7 +706,8 @@ public sealed class ImapProvider : IMailProvider
             await ConnectAndAuthenticateAsync(smtp, Account.SmtpHost, Account.SmtpPort, Account.SmtpSecurity, "SMTP", ct).ConfigureAwait(false);
             try
             {
-                await smtp.SendAsync(MimeMail.SendFormat, mime, ct).ConfigureAwait(false);
+                // Recipients come from the message (Bcc included); the transmitted text carries no Bcc header.
+                await smtp.SendAsync(MimeMail.TransportFormat, mime, ct).ConfigureAwait(false);
             }
             catch (SmtpCommandException ex)
             {
@@ -725,18 +726,27 @@ public sealed class ImapProvider : IMailProvider
             await smtp.DisconnectAsync(true, ct).ConfigureAwait(false);
         }
 
-        await RunAsync(async () =>
+        // The message is sent: from here on a failure must not be reported as "not sent" (the user would send it
+        // again). The Sent copy, draft removal and the "answered" flag are best effort.
+        try
         {
-            if (Account.SaveSentCopy)
+            await RunAsync(async () =>
             {
-                var sent = await EnsureSpecialFolderAsync(WellKnownFolder.SentItems, "Sent", ct).ConfigureAwait(false);
-                await sent.AppendAsync(MimeMail.SendFormat, mime, MessageFlags.Seen, ct).ConfigureAwait(false);
-            }
-            if (message.Action == ComposeAction.EditDraft && message.ReferenceItemId != null)
-                await DeleteDraftAsync(message.ReferenceItemId, ct).ConfigureAwait(false);
-            if (message.Action is ComposeAction.Reply or ComposeAction.ReplyAll && message.ReferenceItemId != null)
-                await MarkAnsweredAsync(message.ReferenceItemId, ct).ConfigureAwait(false);
-        }, ct).ConfigureAwait(false);
+                if (Account.SaveSentCopy)
+                {
+                    var sent = await EnsureSpecialFolderAsync(WellKnownFolder.SentItems, "Sent", ct).ConfigureAwait(false);
+                    await sent.AppendAsync(MimeMail.SendFormat, mime, MessageFlags.Seen, ct).ConfigureAwait(false);
+                }
+                if (message.Action == ComposeAction.EditDraft && message.ReferenceItemId != null)
+                    await DeleteDraftAsync(message.ReferenceItemId, ct).ConfigureAwait(false);
+                if (message.Action is ComposeAction.Reply or ComposeAction.ReplyAll && message.ReferenceItemId != null)
+                    await MarkAnsweredAsync(message.ReferenceItemId, ct).ConfigureAwait(false);
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is MailServiceException or ImapCommandException or ImapProtocolException or IOException)
+        {
+            Core.Diagnostics.MailLog.Warn?.Invoke($"Письмо отправлено, но копия в «Отправленные» не сохранена: {ex.Message}");
+        }
     }
 
     private async Task MarkAnsweredAsync(string itemId, CancellationToken ct)
