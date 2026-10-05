@@ -1,5 +1,7 @@
 using System.Xml.Linq;
+using MailClient.Core.Mime;
 using MailClient.Core.Models;
+using MimeKit;
 using MailClient.Core.Services;
 using MailClient.Exchange.Http;
 using static MailClient.Exchange.Ews.Ews;
@@ -325,14 +327,27 @@ public sealed class ExchangeProvider : IMailProvider
         EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
     }
 
+    /// <summary>
+    /// Deleting a folder moves it to Deleted Items (MoveFolder); deleting it from there is permanent
+    /// (erase_folder.rs: DeleteFolder with HardDelete).
+    /// </summary>
     public async Task DeleteFolderAsync(string folderId, bool permanent, CancellationToken ct = default)
     {
+        if (!permanent)
+        {
+            await MoveFolderAsync(folderId, WellKnownOrName(WellKnownFolder.DeletedItems, "deleteditems"), ct).ConfigureAwait(false);
+            return;
+        }
         var request = new XElement(M + "DeleteFolder",
-            new XAttribute("DeleteType", permanent ? "HardDelete" : "MoveToDeletedItems"),
+            new XAttribute("DeleteType", "HardDelete"),
             new XElement(M + "FolderIds", FolderIdElement(folderId)));
-        EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
+        EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false), "ErrorItemNotFound", "ErrorFolderNotFound");
     }
 
+    /// <summary>
+    /// Emptying Deleted Items / Junk is permanent (erase_folder.rs: EmptyFolder HardDelete with subfolders);
+    /// emptying any other folder moves its messages to Deleted Items.
+    /// </summary>
     public async Task EmptyFolderAsync(string folderId, bool deleteSubFolders, CancellationToken ct = default)
     {
         bool isTrash = _wellKnownIds.TryGetValue(WellKnownFolder.DeletedItems, out var del) && del == folderId
@@ -340,7 +355,7 @@ public sealed class ExchangeProvider : IMailProvider
                        || folderId.Equals("deleteditems", StringComparison.OrdinalIgnoreCase);
         var request = new XElement(M + "EmptyFolder",
             new XAttribute("DeleteType", isTrash ? "HardDelete" : "MoveToDeletedItems"),
-            new XAttribute("DeleteSubFolders", deleteSubFolders ? "true" : "false"),
+            new XAttribute("DeleteSubFolders", isTrash || deleteSubFolders ? "true" : "false"),
             new XElement(M + "FolderIds", FolderIdElement(folderId)));
         EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
     }
@@ -487,33 +502,83 @@ public sealed class ExchangeProvider : IMailProvider
     }
 
     // ===================================================================== single items
+    // Ported from Thunderbird (comm-central rust/ews_xpcom/src/client/*.rs). Messages travel as MIME: read with
+    // GetItem + IncludeMimeContent and parsed locally (get_message.rs); composed locally and sent with
+    // CreateItem SendOnly (send_message.rs); drafts/imports stored with CreateItem SaveOnly + PR_MESSAGE_FLAGS
+    // (create_message.rs).
 
+    /// <summary>Small MIME cache: opening a message, showing inline images and saving attachments reuse one download.</summary>
+    private readonly LinkedList<(string id, byte[] mime)> _mimeCache = new();
+    private const int MimeCacheSize = 8;
+
+    private void RememberMime(string id, byte[] mime)
+    {
+        lock (_mimeCache)
+        {
+            var existing = _mimeCache.FirstOrDefault(e => e.id == id);
+            if (existing.id != null) _mimeCache.Remove(existing);
+            _mimeCache.AddFirst((id, mime));
+            while (_mimeCache.Count > MimeCacheSize) _mimeCache.RemoveLast();
+        }
+    }
+
+    private byte[]? CachedMime(string id)
+    {
+        lock (_mimeCache) return _mimeCache.FirstOrDefault(e => e.id == id).mime;
+    }
+
+    private async Task<MimeMessage> LoadMimeMessageAsync(string itemId, CancellationToken ct) =>
+        MimeMail.Parse(await GetMimeContentAsync(itemId, ct).ConfigureAwait(false));
+
+    /// <summary>
+    /// Thunderbird's get_message.rs: GetItem IdOnly with IncludeMimeContent. We also request the list properties
+    /// (read state, flag, item class…) in the same call, so the reading pane shows the server's current state.
+    /// </summary>
     public async Task<MailMessage> GetMessageAsync(string itemId, CancellationToken ct = default)
     {
-        var additional = new List<XElement>
-        {
-            FieldUri("item:Body"),
-            FieldUri("item:Attachments"),
-            FieldUri("message:ToRecipients"),
-            FieldUri("message:CcRecipients"),
-            FieldUri("message:BccRecipients"),
-            FieldUri("message:ReplyTo"),
-            FieldUri("message:Sender"),
-            FieldUri("message:InternetMessageId"),
-            FieldUri("message:IsReadReceiptRequested"),
-        };
-        additional.AddRange(SummaryProperties());
         var request = new XElement(M + "GetItem",
             new XElement(M + "ItemShape",
-                new XElement(T + "BaseShape", "AllProperties"),
-                new XElement(T + "BodyType", "Best"),
-                new XElement(T + "AdditionalProperties", additional)),
+                new XElement(T + "BaseShape", "IdOnly"),
+                new XElement(T + "IncludeMimeContent", "true"),
+                new XElement(T + "AdditionalProperties", SummaryProperties())),
             new XElement(M + "ItemIds", ItemId(itemId)));
         var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
         EwsClient.ThrowOnError(response);
         var item = ItemElements(response.Descendants(M + "Items").FirstOrDefault()).FirstOrDefault()
                    ?? throw new MailServiceException("Сервер не вернул запрошенное письмо (возможно, оно удалено).", "ErrorItemNotFound");
-        return EwsParser.ParseMessage(item);
+
+        var message = new MailMessage();
+        EwsParser.FillSummary(message, item);
+        var mimeText = item.Element(T + "MimeContent")?.Value;
+        if (string.IsNullOrEmpty(mimeText))
+            throw new MailServiceException("Сервер не вернул содержимое письма в формате MIME.");
+        var mime = Convert.FromBase64String(mimeText);
+        RememberMime(itemId, mime);
+        MimeMail.Fill(message, MimeMail.Parse(mime), itemId);
+        message.Id = itemId;
+
+        // Meeting requests: the calendar data (time, place) is read from the server, not from the MIME body.
+        if (message.IsMeetingRequest || message.IsMeetingCancellation)
+        {
+            try
+            {
+                var meeting = new XElement(M + "GetItem",
+                    new XElement(M + "ItemShape", new XElement(T + "BaseShape", "AllProperties")),
+                    new XElement(M + "ItemIds", ItemId(itemId)));
+                var meetingResponse = await _ews.SendAsync(meeting, ct, WindowsTimeZoneId()).ConfigureAwait(false);
+                EwsClient.ThrowOnError(meetingResponse);
+                if (ItemElements(meetingResponse.Descendants(M + "Items").FirstOrDefault()).FirstOrDefault() is { } mi)
+                {
+                    message.Meeting = EwsParser.ParseCalendarItem(mi);
+                    message.Meeting.Organizer ??= message.From;
+                }
+            }
+            catch (MailServiceException ex)
+            {
+                Core.Diagnostics.MailLog.Warn?.Invoke($"Данные приглашения не получены: {ex.Message}");
+            }
+        }
+        return message;
     }
 
     private async Task<string> GetChangeKeyAsync(string itemId, CancellationToken ct)
@@ -528,6 +593,7 @@ public sealed class ExchangeProvider : IMailProvider
 
     public async Task<byte[]> GetMimeContentAsync(string itemId, CancellationToken ct = default)
     {
+        if (CachedMime(itemId) is { } cached) return cached;
         var request = new XElement(M + "GetItem",
             new XElement(M + "ItemShape",
                 new XElement(T + "BaseShape", "IdOnly"),
@@ -537,59 +603,67 @@ public sealed class ExchangeProvider : IMailProvider
         EwsClient.ThrowOnError(response);
         var mime = response.Descendants(T + "MimeContent").FirstOrDefault()
                    ?? throw new MailServiceException("Сервер не вернул содержимое письма в формате MIME.");
-        return Convert.FromBase64String(mime.Value);
+        var bytes = Convert.FromBase64String(mime.Value);
+        RememberMime(itemId, bytes);
+        return bytes;
     }
 
     public async Task<AttachmentContent> GetAttachmentAsync(string attachmentId, CancellationToken ct = default) =>
         (await GetAttachmentsAsync(new[] { attachmentId }, ct).ConfigureAwait(false))[0];
 
+    /// <summary>
+    /// Attachments are MIME parts of the message (as in Thunderbird). Ids of the older EWS-attachment form,
+    /// still present in locally cached messages, are served with GetAttachment.
+    /// </summary>
     public async Task<IReadOnlyList<AttachmentContent>> GetAttachmentsAsync(IEnumerable<string> attachmentIds, CancellationToken ct = default)
     {
         var ids = attachmentIds.ToList();
-        if (ids.Count == 0) return Array.Empty<AttachmentContent>();
-        var request = new XElement(M + "GetAttachment",
-            new XElement(M + "AttachmentShape", new XElement(T + "IncludeMimeContent", "true")),
-            new XElement(M + "AttachmentIds", ids.Select(id => new XElement(T + "AttachmentId", new XAttribute("Id", id)))));
-        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
-        EwsClient.ThrowOnError(response);
-
-        var result = new List<AttachmentContent>();
-        foreach (var msg in EwsClient.ResponseMessages(response))
+        var result = new Dictionary<string, AttachmentContent>();
+        foreach (var group in ids.Where(MimeMail.IsPartId).GroupBy(id => MimeMail.SplitPartId(id).itemId))
         {
-            foreach (var a in msg.Element(M + "Attachments")?.Elements() ?? Enumerable.Empty<XElement>())
+            var mime = await LoadMimeMessageAsync(group.Key, ct).ConfigureAwait(false);
+            foreach (var id in group) result[id] = await MimeMail.ExtractAsync(mime, id, ct).ConfigureAwait(false);
+        }
+        var legacy = ids.Where(id => !MimeMail.IsPartId(id)).ToList();
+        if (legacy.Count > 0)
+        {
+            var request = new XElement(M + "GetAttachment",
+                new XElement(M + "AttachmentShape", new XElement(T + "IncludeMimeContent", "true")),
+                new XElement(M + "AttachmentIds", legacy.Select(id => new XElement(T + "AttachmentId", new XAttribute("Id", id)))));
+            var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+            EwsClient.ThrowOnError(response);
+            foreach (var a in EwsClient.ResponseMessages(response).SelectMany(m => m.Element(M + "Attachments")?.Elements() ?? Enumerable.Empty<XElement>()))
             {
                 var info = EwsParser.ParseAttachments(new XElement(T + "Attachments", a)).First();
-                byte[] content;
-                if (a.Name.LocalName == "FileAttachment")
-                {
-                    content = Convert.FromBase64String(a.Element(T + "Content")?.Value ?? "");
-                }
-                else
-                {
-                    // Item attachment (e.g. forwarded e-mail): expose as .eml.
-                    var mime = a.Descendants(T + "MimeContent").FirstOrDefault();
-                    content = mime != null ? Convert.FromBase64String(mime.Value) : Array.Empty<byte>();
-                    info.ContentType = "message/rfc822";
-                }
+                var content = a.Name.LocalName == "FileAttachment"
+                    ? Convert.FromBase64String(a.Element(T + "Content")?.Value ?? "")
+                    : a.Descendants(T + "MimeContent").FirstOrDefault() is { } m ? Convert.FromBase64String(m.Value) : Array.Empty<byte>();
                 info.Size = content.Length;
-                result.Add(new AttachmentContent { Info = info, Content = content });
+                result[info.Id] = new AttachmentContent { Info = info, Content = content };
             }
         }
-        return result;
+        return ids.Where(result.ContainsKey).Select(id => result[id]).ToList();
     }
 
     // ===================================================================== item updates
 
+    /// <summary>
+    /// UpdateItem as Thunderbird sends it (change_read_status.rs, change_flag_status.rs): no ChangeKey and
+    /// ConflictResolution=AlwaysOverwrite. AutoResolve without a ChangeKey is rejected by Exchange
+    /// (ErrorChangeKeyRequiredForWriteOperations) — the "cannot mark as read" error.
+    /// </summary>
     private async Task UpdateItemsAsync(IEnumerable<string> itemIds, Func<XElement[]> updates, bool isMessage, CancellationToken ct)
     {
         foreach (var batch in itemIds.Chunk(100))
         {
             var request = new XElement(M + "UpdateItem",
-                new XAttribute("ConflictResolution", "AutoResolve"),
+                new XAttribute("ConflictResolution", "AlwaysOverwrite"),
                 new XElement(M + "ItemChanges", batch.Select(id =>
                     new XElement(T + "ItemChange", ItemId(id), new XElement(T + "Updates", updates())))));
             if (isMessage) request.Add(new XAttribute("MessageDisposition", "SaveOnly"));
-            EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
+            var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+            // Items deleted meanwhile are not an error for the user (Thunderbird logs and continues).
+            EwsClient.ThrowOnError(response, "ErrorItemNotFound");
         }
     }
 
@@ -600,28 +674,26 @@ public sealed class ExchangeProvider : IMailProvider
                 new XElement(T + "Message", Bool(T + "IsRead", isRead))),
         }, true, ct);
 
+    /// <summary>
+    /// change_flag_status.rs: sets both item:Flag and PR_FLAG_STATUS (2 = flagged, 0 = not flagged) in one change,
+    /// so Outlook and older clients agree. Exchange 2010 has no item:Flag, only the MAPI property.
+    /// </summary>
     public Task SetFlagAsync(IEnumerable<string> itemIds, FlagStatus flag, CancellationToken ct = default)
     {
-        if (_supports2013)
+        var pidValue = flag switch { FlagStatus.Flagged => "2", FlagStatus.Complete => "1", _ => "0" };
+        return UpdateItemsAsync(itemIds, () =>
         {
-            return UpdateItemsAsync(itemIds, () => new[]
-            {
-                new XElement(T + "SetItemField", FieldUri("item:Flag"),
-                    new XElement(T + "Message",
-                        new XElement(T + "Flag", new XElement(T + "FlagStatus", flag.ToString())))),
-            }, true, ct);
-        }
-        // Exchange 2010: write PR_FLAG_STATUS directly.
-        return UpdateItemsAsync(itemIds, () => flag == FlagStatus.NotFlagged
-            ? new[] { new XElement(T + "DeleteItemField", ExtendedFieldUri(EwsParser.FlagStatusPropTag, "Integer")) }
-            : new[]
-            {
-                new XElement(T + "SetItemField", ExtendedFieldUri(EwsParser.FlagStatusPropTag, "Integer"),
-                    new XElement(T + "Message",
-                        new XElement(T + "ExtendedProperty",
-                            ExtendedFieldUri(EwsParser.FlagStatusPropTag, "Integer"),
-                            new XElement(T + "Value", flag == FlagStatus.Complete ? "1" : "2")))),
-            }, true, ct);
+            var list = new List<XElement>();
+            if (_supports2013)
+                list.Add(new XElement(T + "SetItemField", FieldUri("item:Flag"),
+                    new XElement(T + "Message", new XElement(T + "Flag", new XElement(T + "FlagStatus", flag.ToString())))));
+            list.Add(new XElement(T + "SetItemField", ExtendedFieldUri(EwsParser.FlagStatusPropTag, "Integer"),
+                new XElement(T + "Message",
+                    new XElement(T + "ExtendedProperty",
+                        ExtendedFieldUri(EwsParser.FlagStatusPropTag, "Integer"),
+                        new XElement(T + "Value", pidValue)))));
+            return list.ToArray();
+        }, true, ct);
     }
 
     public Task SetCategoriesAsync(string itemId, IEnumerable<string> categories, CancellationToken ct = default)
@@ -637,12 +709,46 @@ public sealed class ExchangeProvider : IMailProvider
             }, true, ct);
     }
 
+    /// <summary>
+    /// change_read_status_all.rs: MarkAllItemsAsRead (Exchange 2013+) with SuppressReadReceipts.
+    /// Returns false on older servers so the caller marks items one by one.
+    /// </summary>
+    public async Task<bool> MarkAllReadAsync(string folderId, bool isRead, CancellationToken ct = default)
+    {
+        if (!_supports2013) return false;
+        var request = new XElement(M + "MarkAllItemsAsRead",
+            Bool(M + "ReadFlag", isRead),
+            Bool(M + "SuppressReadReceipts", true),
+            new XElement(M + "FolderIds", FolderIdElement(folderId)));
+        EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
+        return true;
+    }
+
+    /// <summary>mark_as_junk.rs: MarkAsJunk with MoveItem (Exchange 2013+), otherwise a plain move.</summary>
+    public async Task<IReadOnlyList<string?>> MarkAsJunkAsync(IEnumerable<string> itemIds, bool isJunk, CancellationToken ct = default)
+    {
+        var ids = itemIds.ToList();
+        if (!_supports2013)
+            return await MoveItemsAsync(ids, isJunk ? WellKnownOrName(WellKnownFolder.JunkEmail, "junkemail") : WellKnownOrName(WellKnownFolder.Inbox, "inbox"), ct)
+                .ConfigureAwait(false);
+        var request = new XElement(M + "MarkAsJunk",
+            new XAttribute("IsJunk", isJunk ? "true" : "false"),
+            new XAttribute("MoveItem", "true"),
+            ItemIds(ids));
+        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+        EwsClient.ThrowOnError(response);
+        return EwsClient.ResponseMessages(response)
+            .Select(m => (string?)m.Element(M + "MovedItemId")?.Attribute("Id"))
+            .ToList();
+    }
+
     public Task<IReadOnlyList<string?>> MoveItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default) =>
         MoveOrCopyAsync("MoveItem", itemIds, destinationFolderId, ct);
 
     public Task<IReadOnlyList<string?>> CopyItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default) =>
         MoveOrCopyAsync("CopyItem", itemIds, destinationFolderId, ct);
 
+    /// <summary>copy_move_item.rs: ReturnNewItemIds on servers newer than Exchange 2010.</summary>
     private async Task<IReadOnlyList<string?>> MoveOrCopyAsync(string op, IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct)
     {
         var result = new List<string?>();
@@ -650,156 +756,90 @@ public sealed class ExchangeProvider : IMailProvider
         {
             var request = new XElement(M + op,
                 new XElement(M + "ToFolderId", FolderIdElement(destinationFolderId)),
-                ItemIds(batch));
+                ItemIds(batch),
+                Bool(M + "ReturnNewItemIds", true));
             var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
-            EwsClient.ThrowOnError(response);
+            EwsClient.ThrowOnError(response, "ErrorItemNotFound");
             foreach (var msg in EwsClient.ResponseMessages(response))
                 result.Add((string?)msg.Descendants(T + "ItemId").FirstOrDefault()?.Attribute("Id"));
         }
         return result;
     }
 
+    /// <summary>
+    /// Thunderbird moves deleted messages to Deleted Items with MoveItem and only hard-deletes from there
+    /// (delete_messages.rs: HardDelete in batches of 1000, ErrorItemNotFound ignored).
+    /// </summary>
     public async Task DeleteItemsAsync(IEnumerable<string> itemIds, bool permanent, CancellationToken ct = default)
     {
-        foreach (var batch in itemIds.Chunk(100))
+        var ids = itemIds.ToList();
+        if (!permanent)
+        {
+            await MoveItemsAsync(ids, WellKnownOrName(WellKnownFolder.DeletedItems, "deleteditems"), ct).ConfigureAwait(false);
+            return;
+        }
+        foreach (var batch in ids.Chunk(1000))
         {
             var request = new XElement(M + "DeleteItem",
-                new XAttribute("DeleteType", permanent ? "HardDelete" : "MoveToDeletedItems"),
+                new XAttribute("DeleteType", "HardDelete"),
                 new XAttribute("SendMeetingCancellations", "SendToNone"),
                 new XAttribute("AffectedTaskOccurrences", "AllOccurrences"),
                 ItemIds(batch));
-            // Already-deleted items are not an error for the user.
             EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false), "ErrorItemNotFound");
         }
     }
 
     // ===================================================================== sending
 
-    private static XElement? Recipients(XName name, IReadOnlyCollection<EmailAddress> list) =>
-        list.Count == 0 ? null : new XElement(name, list.Select(a => Mailbox(a.Name, a.Address)));
+    private MailboxAddress Author => new(Account.EffectiveDisplayName, SharedMailbox ?? Account.EmailAddress);
 
-    private XElement BuildMessageElement(OutgoingMessage m)
-    {
-        var msg = new XElement(T + "Message",
-            new XElement(T + "Subject", m.Subject),
-            new XElement(T + "Body", new XAttribute("BodyType", m.BodyIsHtml ? "HTML" : "Text"), m.Body),
-            new XElement(T + "Importance", m.Importance.ToString()),
-            Recipients(T + "ToRecipients", m.To),
-            Recipients(T + "CcRecipients", m.Cc),
-            Recipients(T + "BccRecipients", m.Bcc),
-            Bool(T + "IsReadReceiptRequested", m.RequestReadReceipt),
-            Bool(T + "IsDeliveryReceiptRequested", m.RequestDeliveryReceipt));
-        if (SharedMailbox != null)
-            msg.Add(new XElement(T + "From", Mailbox(null, SharedMailbox)));
-        return msg;
-    }
+    private Task<MimeMessage> BuildMimeAsync(OutgoingMessage message, CancellationToken ct) =>
+        MimeMail.BuildAsync(message, Author, LoadMimeMessageAsync, ct);
 
-    private XElement BuildResponseObject(OutgoingMessage m, string changeKey)
-    {
-        var name = m.Action switch
-        {
-            ComposeAction.Reply => "ReplyToItem",
-            ComposeAction.ReplyAll => "ReplyAllToItem",
-            ComposeAction.Forward => "ForwardItem",
-            _ => throw new InvalidOperationException("Not a response action."),
-        };
-        var e = new XElement(T + name,
-            new XElement(T + "Subject", m.Subject),
-            Recipients(T + "ToRecipients", m.To),
-            Recipients(T + "CcRecipients", m.Cc),
-            Recipients(T + "BccRecipients", m.Bcc),
-            Bool(T + "IsReadReceiptRequested", m.RequestReadReceipt),
-            Bool(T + "IsDeliveryReceiptRequested", m.RequestDeliveryReceipt));
-        if (SharedMailbox != null) e.Add(new XElement(T + "From", Mailbox(null, SharedMailbox)));
-        e.Add(ItemId(m.ReferenceItemId!, changeKey).WithName(T + "ReferenceItemId"));
-        // The server appends the quoted original message (and, for forwards, the original attachments).
-        e.Add(new XElement(T + "NewBodyContent", new XAttribute("BodyType", m.BodyIsHtml ? "HTML" : "Text"), m.Body));
-        return e;
-    }
-
-    private bool IsResponse(OutgoingMessage m) =>
-        m.Action is ComposeAction.Reply or ComposeAction.ReplyAll or ComposeAction.Forward && !string.IsNullOrEmpty(m.ReferenceItemId);
-
+    /// <summary>
+    /// send_message.rs: CreateItem with the MIME content and MessageDisposition=SendOnly; Bcc recipients are
+    /// passed as BccRecipients (they are not in the transmitted MIME). Like Thunderbird's "copy to Sent",
+    /// the message is then stored in Sent Items with CreateItem SaveOnly.
+    /// </summary>
     public async Task SendAsync(OutgoingMessage message, CancellationToken ct = default)
     {
         if (!message.AllRecipients.Any())
             throw new MailServiceException("Укажите хотя бы одного получателя.");
+        var mime = await BuildMimeAsync(message, ct).ConfigureAwait(false);
 
-        if (message.Attachments.Count == 0)
-        {
-            // Single round-trip: create and send, saving a copy in Sent Items.
-            var item = IsResponse(message)
-                ? BuildResponseObject(message, await GetChangeKeyAsync(message.ReferenceItemId!, ct).ConfigureAwait(false))
-                : BuildMessageElement(message);
-            var request = new XElement(M + "CreateItem",
-                new XAttribute("MessageDisposition", "SendAndSaveCopy"),
-                new XElement(M + "SavedItemFolderId", FolderIdElement("sentitems")),
-                new XElement(M + "Items", item));
-            EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
-        }
-        else
-        {
-            // Large/many attachments: save draft, upload attachments one by one, then send.
-            var (id, changeKey) = await CreateDraftAsync(message, ct).ConfigureAwait(false);
-            changeKey = await UploadAttachmentsAsync(id, changeKey, message.Attachments, ct).ConfigureAwait(false);
-            var send = new XElement(M + "SendItem",
-                new XAttribute("SaveItemToFolder", "true"),
-                new XElement(M + "ItemIds", ItemId(id, changeKey)),
-                new XElement(M + "SavedItemFolderId", FolderIdElement("sentitems")));
-            EwsClient.ThrowOnError(await _ews.SendAsync(send, ct).ConfigureAwait(false));
-        }
-
-        if (message.Action == ComposeAction.EditDraft && !string.IsNullOrEmpty(message.ReferenceItemId))
-            await DeleteItemsAsync(new[] { message.ReferenceItemId }, true, ct).ConfigureAwait(false);
-    }
-
-    public async Task<string> SaveDraftAsync(OutgoingMessage message, CancellationToken ct = default)
-    {
-        var (id, changeKey) = await CreateDraftAsync(message, ct).ConfigureAwait(false);
-        await UploadAttachmentsAsync(id, changeKey, message.Attachments, ct).ConfigureAwait(false);
-        if (message.Action == ComposeAction.EditDraft && !string.IsNullOrEmpty(message.ReferenceItemId))
-            await DeleteItemsAsync(new[] { message.ReferenceItemId }, true, ct).ConfigureAwait(false);
-        return id;
-    }
-
-    private async Task<(string id, string changeKey)> CreateDraftAsync(OutgoingMessage message, CancellationToken ct)
-    {
-        var item = IsResponse(message)
-            ? BuildResponseObject(message, await GetChangeKeyAsync(message.ReferenceItemId!, ct).ConfigureAwait(false))
-            : BuildMessageElement(message);
+        var item = new XElement(T + "Message",
+            new XElement(T + "MimeContent", Convert.ToBase64String(MimeMail.ToBytes(mime, MimeMail.TransportFormat))));
+        if (message.Bcc.Count > 0)
+            item.Add(new XElement(T + "BccRecipients", message.Bcc.Select(a => Mailbox(a.Name, a.Address))));
+        item.Add(Bool(T + "IsDeliveryReceiptRequested", message.RequestDeliveryReceipt));
+        item.Add(new XElement(T + "InternetMessageId", $"<{mime.MessageId}>"));
         var request = new XElement(M + "CreateItem",
-            new XAttribute("MessageDisposition", "SaveOnly"),
-            new XElement(M + "SavedItemFolderId", FolderIdElement("drafts")),
+            new XAttribute("MessageDisposition", "SendOnly"),
             new XElement(M + "Items", item));
-        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
-        EwsClient.ThrowOnError(response);
-        var id = response.Descendants(T + "ItemId").FirstOrDefault()
-                 ?? throw new MailServiceException("Сервер не вернул идентификатор черновика.");
-        return ((string)id.Attribute("Id")!, (string?)id.Attribute("ChangeKey") ?? "");
-    }
+        EwsClient.ThrowOnError(await _ews.SendAsync(request, ct).ConfigureAwait(false));
 
-    private async Task<string> UploadAttachmentsAsync(string itemId, string changeKey, IEnumerable<OutgoingAttachment> attachments, CancellationToken ct)
-    {
-        foreach (var a in attachments)
+        // The message is sent; failures from here on must not report "not sent".
+        if (Account.SaveSentCopy)
         {
-            var file = new XElement(T + "FileAttachment",
-                new XElement(T + "Name", a.Name),
-                new XElement(T + "ContentType", a.ContentType));
-            if (!string.IsNullOrEmpty(a.ContentId)) file.Add(new XElement(T + "ContentId", a.ContentId));
-            file.Add(Bool(T + "IsInline", a.IsInline));
-            file.Add(new XElement(T + "Content", Convert.ToBase64String(a.Content)));
-
-            var parent = new XElement(M + "ParentItemId", new XAttribute("Id", itemId));
-            if (!string.IsNullOrEmpty(changeKey)) parent.Add(new XAttribute("ChangeKey", changeKey));
-            var request = new XElement(M + "CreateAttachment", parent, new XElement(M + "Attachments", file));
-            var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
-            EwsClient.ThrowOnError(response);
-            changeKey = (string?)response.Descendants(T + "AttachmentId").FirstOrDefault()?.Attribute("RootItemChangeKey") ?? changeKey;
+            try
+            {
+                await CreateMimeItemAsync("sentitems", MimeMail.ToBytes(mime, MimeMail.SendFormat),
+                    MimeMail.MsgFlagRead | MimeMail.MsgFlagUnmodified, isRead: true, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is MailServiceException)
+            {
+                Core.Diagnostics.MailLog.Warn?.Invoke($"Письмо отправлено, но копия в «Отправленные» не сохранена: {ex.Message}");
+            }
         }
-        return changeKey;
+        if (message.Action == ComposeAction.EditDraft && !string.IsNullOrEmpty(message.ReferenceItemId))
+        {
+            try { await DeleteItemsAsync(new[] { message.ReferenceItemId }, true, ct).ConfigureAwait(false); }
+            catch (MailServiceException ex) { Core.Diagnostics.MailLog.Warn?.Invoke($"Черновик после отправки не удалён: {ex.Message}"); }
+        }
     }
 
-    public async Task<string> ImportMimeAsync(string folderId, byte[] mime, CancellationToken ct = default)
+    /// <summary>create_message.rs: CreateItem SaveOnly with MIME, IsRead and PR_MESSAGE_FLAGS.</summary>
+    private async Task<string> CreateMimeItemAsync(string folderId, byte[] mime, int mapiFlags, bool isRead, CancellationToken ct)
     {
         var request = new XElement(M + "CreateItem",
             new XAttribute("MessageDisposition", "SaveOnly"),
@@ -807,14 +847,29 @@ public sealed class ExchangeProvider : IMailProvider
             new XElement(M + "Items",
                 new XElement(T + "Message",
                     new XElement(T + "MimeContent", Convert.ToBase64String(mime)),
-                    // PR_MESSAGE_FLAGS = MSGFLAG_READ: import as a regular (non-draft) read message.
                     new XElement(T + "ExtendedProperty",
                         ExtendedFieldUri("0x0E07", "Integer"),
-                        new XElement(T + "Value", "1")))));
+                        new XElement(T + "Value", mapiFlags.ToString(System.Globalization.CultureInfo.InvariantCulture))),
+                    Bool(T + "IsRead", isRead))));
         var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
         EwsClient.ThrowOnError(response);
         return (string?)response.Descendants(T + "ItemId").FirstOrDefault()?.Attribute("Id") ?? "";
     }
+
+    /// <summary>Drafts: MIME in Drafts with READ|UNSENT (create_message.rs with is_draft).</summary>
+    public async Task<string> SaveDraftAsync(OutgoingMessage message, CancellationToken ct = default)
+    {
+        var mime = await BuildMimeAsync(message, ct).ConfigureAwait(false);
+        var id = await CreateMimeItemAsync("drafts", MimeMail.ToBytes(mime, MimeMail.SendFormat),
+            MimeMail.MsgFlagRead | MimeMail.MsgFlagUnsent, isRead: true, ct).ConfigureAwait(false);
+        if (message.Action == ComposeAction.EditDraft && !string.IsNullOrEmpty(message.ReferenceItemId))
+            await DeleteItemsAsync(new[] { message.ReferenceItemId }, true, ct).ConfigureAwait(false);
+        return id;
+    }
+
+    /// <summary>Import (.eml): stored as a regular read message (READ|UNMODIFIED), as Thunderbird does.</summary>
+    public Task<string> ImportMimeAsync(string folderId, byte[] mime, CancellationToken ct = default) =>
+        CreateMimeItemAsync(folderId, mime, MimeMail.MsgFlagRead | MimeMail.MsgFlagUnmodified, isRead: true, ct);
 
     // ===================================================================== directory
 

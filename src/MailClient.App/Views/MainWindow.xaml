@@ -63,6 +63,7 @@
                                 <Separator/>
                                 <MenuItem Header="Автоответ (нет на месте)…" Command="{Binding OpenOutOfOfficeCommand}"/>
                                 <MenuItem Header="Открыть папку журналов" Command="{Binding OpenLogsCommand}"/>
+                                <MenuItem Header="Сохранить отчёт для техподдержки…" Command="{Binding SaveSupportBundleCommand}"/>
                                 <MenuItem Header="О программе" Command="{Binding ShowAboutCommand}"/>
                             </ContextMenu>
                         </Button.ContextMenu>
@@ -208,7 +209,10 @@
                                 <Separator/>
                                 <MenuItem Header="Переместить в папку…" Command="{Binding MoveToCommand}" InputGestureText="Ctrl+Shift+V"/>
                                 <MenuItem Header="Копировать в папку…" Command="{Binding CopyToCommand}"/>
-                                <MenuItem Header="Нежелательная почта" Command="{Binding MarkAsJunkCommand}"/>
+                                <MenuItem Header="Нежелательная почта" Command="{Binding MarkAsJunkCommand}"
+                                          Visibility="{Binding IsJunkFolder, Converter={StaticResource InvBoolToVis}}"/>
+                                <MenuItem Header="Не спам — вернуть во «Входящие»" Command="{Binding MarkAsJunkCommand}"
+                                          Visibility="{Binding IsJunkFolder, Converter={StaticResource BoolToVis}}"/>
                                 <Separator/>
                                 <MenuItem Header="Сохранить как .eml…" Command="{Binding SaveAsEmlCommand}" InputGestureText="Ctrl+S"/>
                                 <Separator/>
@@ -279,7 +283,11 @@
                         <Rectangle Width="1" Height="20" Margin="6,0" Fill="{DynamicResource Brush.Border}"/>
                         <Button Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="Удалить" Command="{Binding DeleteCommand}" ToolTip="Удалить (Delete)"/>
                         <Button Style="{StaticResource ToolButton}" Tag="&#xE8DE;" Content="Переместить" Command="{Binding MoveToCommand}" ToolTip="Переместить в папку"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE7BA;" Command="{Binding MarkAsJunkCommand}" ToolTip="В нежелательную почту"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE7BA;" Command="{Binding MarkAsJunkCommand}" ToolTip="В нежелательную почту"
+                                Visibility="{Binding IsJunkFolder, Converter={StaticResource InvBoolToVis}}"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE930;" Content="Не спам" Command="{Binding MarkAsJunkCommand}"
+                                ToolTip="Вернуть во «Входящие» и не считать отправителя спамером"
+                                Visibility="{Binding IsJunkFolder, Converter={StaticResource BoolToVis}}"/>
                         <Rectangle Width="1" Height="20" Margin="6,0" Fill="{DynamicResource Brush.Border}"/>
                         <Button Style="{StaticResource ToolButton}" Tag="&#xE8C3;" Command="{Binding MarkReadCommand}" ToolTip="Отметить как прочитанное (Ctrl+Q)"/>
                         <Button Style="{StaticResource ToolButton}" Tag="&#xE715;" Command="{Binding MarkUnreadCommand}" ToolTip="Отметить как непрочитанное (Ctrl+U)"/>

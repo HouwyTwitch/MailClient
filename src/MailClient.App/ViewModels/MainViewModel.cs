@@ -56,7 +56,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public List<MessageItemViewModel> SelectedMessages { get; } = new();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected),
+    [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected), nameof(IsJunkFolder),
         nameof(SupportsCalendar), nameof(SupportsContacts), nameof(SupportsTasks), nameof(SupportsOutOfOffice))]
     private FolderNodeViewModel? _selectedFolder;
 
@@ -514,13 +514,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var folder = SelectedFolder;
         if (folder == null || folder.IsAccountRoot) return;
-        // Make sure the cache holds the whole folder, then mark everything unread as read.
         await RunAsync("Не удалось отметить папку как прочитанную", async () =>
         {
-            await folder.Session.Sync.SyncFolderAsync(folder.Id);
+            // One server call where supported (Exchange 2013+: MarkAllItemsAsRead, as in Thunderbird).
+            if (!await folder.Session.Provider.MarkAllReadAsync(folder.Id, true))
+            {
+                await folder.Session.Sync.SyncFolderAsync(folder.Id);
+                var toMark = folder.Session.Cache.GetMessages(folder.Id, 0, int.MaxValue).Where(m => !m.IsRead).Select(m => m.Id).ToList();
+                if (toMark.Count > 0) await folder.Session.Provider.SetReadStateAsync(toMark, true);
+            }
             var unread = folder.Session.Cache.GetMessages(folder.Id, 0, int.MaxValue).Where(m => !m.IsRead).Select(m => m.Id).ToList();
-            if (unread.Count == 0) return;
-            await folder.Session.Provider.SetReadStateAsync(unread, true);
             folder.Session.Cache.SetReadState(unread, true);
             folder.Unread = 0;
             foreach (var m in Messages) m.IsRead = true;
@@ -583,13 +586,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await RunAsync("Не удалось удалить письма", () => folder.Session.Provider.DeleteItemsAsync(items.Select(i => i.Id), permanent));
     }
 
+    public bool IsJunkFolder => SelectedFolder?.Folder.WellKnown == WellKnownFolder.JunkEmail;
+
+    /// <summary>"Junk" / "Not junk" (MarkAsJunk on Exchange 2013+, as in Thunderbird's mark_as_junk.rs).</summary>
     [RelayCommand]
     private async Task MarkAsJunkAsync()
     {
         var folder = SelectedFolder;
-        var junk = folder?.Session.FolderId(WellKnownFolder.JunkEmail);
-        if (folder == null || junk == null) return;
-        await MoveItemsToAsync(Targets.ToList(), folder, junk);
+        var items = Targets.ToList();
+        if (folder == null || items.Count == 0) return;
+        bool isJunk = !IsJunkFolder;
+        RemoveFromList(items);
+        await RunAsync(isJunk ? "Не удалось переместить в нежелательную почту" : "Не удалось вернуть письма во «Входящие»", async () =>
+        {
+            await folder.Session.Provider.MarkAsJunkAsync(items.Select(i => i.Id), isJunk);
+            StatusText = isJunk
+                ? $"В нежелательную почту: {RuText.Count(items.Count, "письмо", "письма", "писем")}"
+                : $"Во «Входящие»: {RuText.Count(items.Count, "письмо", "письма", "писем")}";
+            folder.Session.SyncNow();
+        });
     }
 
     [RelayCommand]
@@ -977,6 +992,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void OpenLogs() => WindowsIntegration.ShellOpen(AppPaths.Logs);
+
+    /// <summary>ZIP with logs, settings without secrets and system data for the IT department.</summary>
+    [RelayCommand]
+    private void SaveSupportBundle()
+    {
+        var dlg = new SaveFileDialog
+        {
+            Title = "Отчёт для техподдержки",
+            FileName = $"mailclient-report-{DateTime.Now:yyyyMMdd-HHmm}.zip",
+            Filter = "Архив ZIP (*.zip)|*.zip",
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            SupportBundle.Create(dlg.FileName);
+            Dialogs.Info($"Отчёт сохранён:\n{dlg.FileName}\n\nОн содержит журналы работы и настройки программы без паролей. Передайте файл в техподдержку.");
+        }
+        catch (Exception ex)
+        {
+            Dialogs.Error(ex, "Не удалось сохранить отчёт");
+        }
+    }
 
     [RelayCommand]
     private void ShowAbout() => WindowFactory.About();

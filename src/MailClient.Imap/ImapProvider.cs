@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using MailClient.Core.Mime;
 using MailClient.Core.Models;
 using MailClient.Core.Rendering;
 using MailClient.Core.Security;
@@ -24,7 +25,6 @@ public sealed class ImapProvider : IMailProvider
 {
     public const string RootId = "imap:root";
     private const char IdSeparator = '\u001F';
-    private const char PartSeparator = '\u001E';
 
     private readonly ICredentialProvider _credentials;
     private readonly ImapClient _imap = new();
@@ -543,16 +543,6 @@ public sealed class ImapProvider : IMailProvider
         }
     }
 
-    private static List<EmailAddress> Addresses(InternetAddressList list) =>
-        list.Mailboxes.Select(m => new EmailAddress(m.Name ?? "", m.Address ?? "")).ToList();
-
-    /// <summary>Attachment-like parts in a stable order (the index is part of the attachment id).</summary>
-    private static List<MimeEntity> AttachmentParts(MimeMessage message) =>
-        message.BodyParts.Where(p =>
-            p is MessagePart ||
-            p.IsAttachment ||
-            (p is MimePart mp && !mp.ContentType.IsMimeType("text", "*") && (mp.ContentId != null || mp.FileName != null))).ToList();
-
     public Task<MailMessage> GetMessageAsync(string itemId, CancellationToken ct = default) => RunAsync(async () =>
     {
         var (f, uid, mime) = await LoadMimeAsync(itemId, ct).ConfigureAwait(false);
@@ -566,40 +556,7 @@ public sealed class ImapProvider : IMailProvider
         }
         m.Id = itemId;
         m.FolderId = f.FullName;
-        m.Subject = mime.Subject ?? m.Subject;
-        m.To = Addresses(mime.To);
-        m.Cc = Addresses(mime.Cc);
-        m.Bcc = Addresses(mime.Bcc);
-        m.ReplyTo = Addresses(mime.ReplyTo);
-        if (mime.From.Mailboxes.FirstOrDefault() is { } from) m.From = new EmailAddress(from.Name ?? "", from.Address ?? "");
-        if (mime.Sender is { } sender) m.Sender = new EmailAddress(sender.Name ?? "", sender.Address ?? "");
-        m.InternetMessageId = mime.MessageId is { Length: > 0 } mid ? $"<{mid}>" : "";
-        m.IsReadReceiptRequested = mime.Headers.Contains("Disposition-Notification-To");
-        m.BodyIsHtml = mime.HtmlBody != null;
-        m.Body = mime.HtmlBody ?? mime.TextBody ?? "";
-
-        int index = 0;
-        foreach (var part in AttachmentParts(mime))
-        {
-            var name = part switch
-            {
-                MessagePart msgPart => (msgPart.Message?.Subject is { Length: > 0 } subj ? subj : "Вложенное письмо") + ".eml",
-                MimePart mp => mp.FileName ?? (mp.ContentId != null ? $"image{index}.{mp.ContentType.MediaSubtype}" : $"attachment{index}"),
-                _ => $"attachment{index}",
-            };
-            m.Attachments.Add(new AttachmentInfo
-            {
-                Id = $"{itemId}{PartSeparator}{index}",
-                Name = name,
-                ContentType = part is MessagePart ? "message/rfc822" : part.ContentType.MimeType,
-                ContentId = (part.ContentId ?? "").Trim('<', '>'),
-                IsInline = !part.IsAttachment && part.ContentId != null,
-                IsItemAttachment = part is MessagePart,
-                Size = part is MimePart { Content: { } c } && c.Stream.CanSeek ? c.Stream.Length * 3 / 4 : 0,
-            });
-            index++;
-        }
-        m.HasAttachments = m.Attachments.Any(a => !a.IsInline);
+        MimeMail.Fill(m, mime, itemId);
         return m;
     }, ct);
 
@@ -618,34 +575,10 @@ public sealed class ImapProvider : IMailProvider
         RunAsync(async () =>
         {
             var result = new List<AttachmentContent>();
-            foreach (var group in attachmentIds.Select(id => (id, parts: id.Split(PartSeparator))).GroupBy(x => x.parts[0]))
+            foreach (var group in attachmentIds.GroupBy(id => MimeMail.SplitPartId(id).itemId))
             {
                 var (_, _, mime) = await LoadMimeAsync(group.Key, ct).ConfigureAwait(false);
-                var parts = AttachmentParts(mime);
-                foreach (var (id, p) in group)
-                {
-                    var index = int.Parse(p[1]);
-                    if (index >= parts.Count) throw new MailServiceException("Вложение не найдено.");
-                    var part = parts[index];
-                    using var ms = new MemoryStream();
-                    if (part is MessagePart mp) await mp.Message.WriteToAsync(ms, ct).ConfigureAwait(false);
-                    else if (part is MimePart file) await file.Content.DecodeToAsync(ms, ct).ConfigureAwait(false);
-                    var name = part is MimePart named ? named.FileName ?? $"attachment{index}" : "message.eml";
-                    result.Add(new AttachmentContent
-                    {
-                        Info = new AttachmentInfo
-                        {
-                            Id = id,
-                            Name = name,
-                            ContentType = part is MessagePart ? "message/rfc822" : part.ContentType.MimeType,
-                            ContentId = (part.ContentId ?? "").Trim('<', '>'),
-                            IsInline = !part.IsAttachment && part.ContentId != null,
-                            IsItemAttachment = part is MessagePart,
-                            Size = ms.Length,
-                        },
-                        Content = ms.ToArray(),
-                    });
-                }
+                foreach (var id in group) result.Add(await MimeMail.ExtractAsync(mime, id, ct).ConfigureAwait(false));
             }
             return (IReadOnlyList<AttachmentContent>)result;
         }, ct);
@@ -676,6 +609,24 @@ public sealed class ImapProvider : IMailProvider
     }, ct);
 
     public Task SetCategoriesAsync(string itemId, IEnumerable<string> categories, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<bool> MarkAllReadAsync(string folderId, bool isRead, CancellationToken ct = default) => RunAsync(async () =>
+    {
+        var f = await OpenAsync(await FolderAsync(folderId, ct).ConfigureAwait(false), FolderAccess.ReadWrite, ct).ConfigureAwait(false);
+        var uids = await f.SearchAsync(isRead ? SearchQuery.NotSeen : SearchQuery.Seen, ct).ConfigureAwait(false);
+        if (uids.Count == 0) return true;
+        if (isRead) await f.AddFlagsAsync(uids, MessageFlags.Seen, true, ct).ConfigureAwait(false);
+        else await f.RemoveFlagsAsync(uids, MessageFlags.Seen, true, ct).ConfigureAwait(false);
+        return true;
+    }, ct);
+
+    public async Task<IReadOnlyList<string?>> MarkAsJunkAsync(IEnumerable<string> itemIds, bool isJunk, CancellationToken ct = default)
+    {
+        var target = await RunAsync(async () => isJunk
+            ? (await EnsureSpecialFolderAsync(WellKnownFolder.JunkEmail, "Junk", ct).ConfigureAwait(false)).FullName
+            : _imap.Inbox.FullName, ct).ConfigureAwait(false);
+        return await MoveItemsAsync(itemIds, target, ct).ConfigureAwait(false);
+    }
 
     public Task<IReadOnlyList<string?>> MoveItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default) =>
         TransferAsync(itemIds, destinationFolderId, move: true, ct);
@@ -718,101 +669,9 @@ public sealed class ImapProvider : IMailProvider
 
     // ===================================================================== composing
 
-    private static readonly FormatOptions SendFormat = CreateFormat();
-
-    private static FormatOptions CreateFormat()
-    {
-        // RFC 2047 file names: understood by Outlook and Russian corporate mail systems (RFC 2231 is not everywhere).
-        var f = FormatOptions.Default.Clone();
-        f.ParameterEncodingMethod = ParameterEncodingMethod.Rfc2047;
-        return f;
-    }
-
-    private static string QuoteHeader(MimeMessage o, string title) =>
-        $"<p>{title}</p><p style=\"margin:0\"><b>От:</b> {System.Net.WebUtility.HtmlEncode(o.From.ToString())}<br>" +
-        $"<b>Отправлено:</b> {o.Date.LocalDateTime.ToString("dd.MM.yyyy HH:mm", System.Globalization.CultureInfo.GetCultureInfo("ru-RU"))}<br>" +
-        $"<b>Кому:</b> {System.Net.WebUtility.HtmlEncode(o.To.ToString())}<br>" +
-        (o.Cc.Count > 0 ? $"<b>Копия:</b> {System.Net.WebUtility.HtmlEncode(o.Cc.ToString())}<br>" : "") +
-        $"<b>Тема:</b> {System.Net.WebUtility.HtmlEncode(o.Subject ?? "")}</p>";
-
-    private async Task<MimeMessage> BuildMimeAsync(OutgoingMessage message, CancellationToken ct)
-    {
-        var m = new MimeMessage();
-        m.From.Add(new MailboxAddress(Account.EffectiveDisplayName, Account.EmailAddress));
-        m.To.AddRange(message.To.Select(a => new MailboxAddress(a.Name, a.Address)));
-        m.Cc.AddRange(message.Cc.Select(a => new MailboxAddress(a.Name, a.Address)));
-        m.Bcc.AddRange(message.Bcc.Select(a => new MailboxAddress(a.Name, a.Address)));
-        m.Subject = message.Subject;
-        m.Date = DateTimeOffset.Now;
-        if (message.Importance == Importance.High) { m.Importance = MessageImportance.High; m.XPriority = XMessagePriority.High; }
-        if (message.Importance == Importance.Low) { m.Importance = MessageImportance.Low; m.XPriority = XMessagePriority.Low; }
-        if (message.RequestReadReceipt) m.Headers[HeaderId.DispositionNotificationTo] = Account.EmailAddress;
-
-        var builder = new BodyBuilder();
-        var html = message.BodyIsHtml ? message.Body : MessageHtmlBuilder.TextToHtml(message.Body);
-
-        // IMAP has no server-side reply/forward: quote the original here, like Thunderbird/Evolution do.
-        if (message.Action is ComposeAction.Reply or ComposeAction.ReplyAll or ComposeAction.Forward && message.ReferenceItemId != null)
-        {
-            var (_, _, original) = await LoadMimeAsync(message.ReferenceItemId, ct).ConfigureAwait(false);
-            var originalHtml = original.HtmlBody != null
-                ? MessageHtmlBuilder.BodyFragment(MessageHtmlBuilder.StripDangerous(original.HtmlBody))
-                : MessageHtmlBuilder.TextToHtml(original.TextBody ?? "");
-            var forward = message.Action == ComposeAction.Forward;
-            html = MessageHtmlBuilder.BodyFragment(html) + "<br>" +
-                   QuoteHeader(original, forward ? "-------- Пересылаемое сообщение --------" : "-------- Исходное сообщение --------") +
-                   (forward ? $"<div>{originalHtml}</div>" : $"<blockquote style=\"border-left:2px solid #8a8a8a;margin:0 0 0 4px;padding-left:10px\">{originalHtml}</blockquote>");
-
-            // Keep inline images of the quoted original working.
-            foreach (var part in original.BodyParts.OfType<MimePart>().Where(p => p.ContentId != null && !p.IsAttachment))
-            {
-                using var ms = new MemoryStream();
-                await part.Content.DecodeToAsync(ms, ct).ConfigureAwait(false);
-                var res = builder.LinkedResources.Add(part.FileName ?? "image", ms.ToArray(), part.ContentType);
-                res.ContentId = part.ContentId;
-            }
-
-            if (forward)
-            {
-                foreach (var part in original.Attachments)
-                {
-                    using var ms = new MemoryStream();
-                    if (part is MessagePart mp) await mp.Message.WriteToAsync(ms, ct).ConfigureAwait(false);
-                    else if (part is MimePart file) await file.Content.DecodeToAsync(ms, ct).ConfigureAwait(false);
-                    var name = (part as MimePart)?.FileName ?? "message.eml";
-                    builder.Attachments.Add(name, ms.ToArray(), part.ContentType);
-                }
-            }
-            else
-            {
-                // Threading headers so replies are grouped in every mail client.
-                if (!string.IsNullOrEmpty(original.MessageId))
-                {
-                    m.InReplyTo = original.MessageId;
-                    foreach (var r in original.References) m.References.Add(r);
-                    m.References.Add(original.MessageId);
-                }
-            }
-        }
-
-        builder.HtmlBody = html;
-        builder.TextBody = MessageHtmlBuilder.HtmlToText(html);
-        foreach (var a in message.Attachments)
-        {
-            var type = ContentType.TryParse(a.ContentType, out var ctParsed) ? ctParsed : new ContentType("application", "octet-stream");
-            if (a.IsInline && !string.IsNullOrEmpty(a.ContentId))
-            {
-                var res = builder.LinkedResources.Add(a.Name, a.Content, type);
-                res.ContentId = a.ContentId;
-            }
-            else
-            {
-                builder.Attachments.Add(a.Name, a.Content, type);
-            }
-        }
-        m.Body = builder.ToMessageBody();
-        return m;
-    }
+    private Task<MimeMessage> BuildMimeAsync(OutgoingMessage message, CancellationToken ct) =>
+        MimeMail.BuildAsync(message, new MailboxAddress(Account.EffectiveDisplayName, Account.EmailAddress),
+            async (id, token) => (await LoadMimeAsync(id, token).ConfigureAwait(false)).message, ct);
 
     public async Task SendAsync(OutgoingMessage message, CancellationToken ct = default)
     {
@@ -824,7 +683,7 @@ public sealed class ImapProvider : IMailProvider
             await ConnectAndAuthenticateAsync(smtp, Account.SmtpHost, Account.SmtpPort, Account.SmtpSecurity, "SMTP", ct).ConfigureAwait(false);
             try
             {
-                await smtp.SendAsync(SendFormat, mime, ct).ConfigureAwait(false);
+                await smtp.SendAsync(MimeMail.SendFormat, mime, ct).ConfigureAwait(false);
             }
             catch (SmtpCommandException ex)
             {
@@ -848,7 +707,7 @@ public sealed class ImapProvider : IMailProvider
             if (Account.SaveSentCopy)
             {
                 var sent = await EnsureSpecialFolderAsync(WellKnownFolder.SentItems, "Sent", ct).ConfigureAwait(false);
-                await sent.AppendAsync(SendFormat, mime, MessageFlags.Seen, ct).ConfigureAwait(false);
+                await sent.AppendAsync(MimeMail.SendFormat, mime, MessageFlags.Seen, ct).ConfigureAwait(false);
             }
             if (message.Action == ComposeAction.EditDraft && message.ReferenceItemId != null)
                 await DeleteDraftAsync(message.ReferenceItemId, ct).ConfigureAwait(false);
@@ -882,7 +741,7 @@ public sealed class ImapProvider : IMailProvider
     {
         var mime = await BuildMimeAsync(message, ct).ConfigureAwait(false);
         var drafts = await EnsureSpecialFolderAsync(WellKnownFolder.Drafts, "Drafts", ct).ConfigureAwait(false);
-        var uid = await drafts.AppendAsync(SendFormat, mime, MessageFlags.Seen | MessageFlags.Draft, ct).ConfigureAwait(false);
+        var uid = await drafts.AppendAsync(MimeMail.SendFormat, mime, MessageFlags.Seen | MessageFlags.Draft, ct).ConfigureAwait(false);
         if (message.Action == ComposeAction.EditDraft && message.ReferenceItemId != null)
             await DeleteDraftAsync(message.ReferenceItemId, ct).ConfigureAwait(false);
         if (uid is not { } u) return "";

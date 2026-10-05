@@ -53,6 +53,12 @@ public interface IMailProvider : IDisposable
     /// <summary>Moves items and returns their new ids (same order; null when the server did not return one).</summary>
     Task<IReadOnlyList<string?>> MoveItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default);
     Task<IReadOnlyList<string?>> CopyItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default);
+    /// <summary>Marks every message of a folder read/unread on the server. Returns false when not supported.</summary>
+    Task<bool> MarkAllReadAsync(string folderId, bool isRead, CancellationToken ct = default);
+
+    /// <summary>Moves items to (or out of) the Junk folder, letting the server learn the sender. Returns new ids.</summary>
+    Task<IReadOnlyList<string?>> MarkAsJunkAsync(IEnumerable<string> itemIds, bool isJunk, CancellationToken ct = default);
+
     /// <summary>Deletes items. When <paramref name="permanent"/> is false they go to Deleted Items.</summary>
     Task DeleteItemsAsync(IEnumerable<string> itemIds, bool permanent, CancellationToken ct = default);
 

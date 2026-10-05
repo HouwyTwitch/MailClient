@@ -212,43 +212,6 @@ public class ExchangeProviderTests
     }
 
     [Fact]
-    public async Task GetMessage_parses_recipients_body_and_attachments()
-    {
-        var fake = new FakeEws().On("GetItem", Response("GetItem", Success("GetItem", """
-            <m:Items><t:Message>
-              <t:ItemId Id="AAA=" ChangeKey="CK"/>
-              <t:Subject>Hi</t:Subject>
-              <t:Body BodyType="HTML">&lt;p&gt;Hello &lt;img src="cid:logo@x"&gt;&lt;/p&gt;</t:Body>
-              <t:Attachments>
-                <t:FileAttachment><t:AttachmentId Id="ATT1"/><t:Name>report.pdf</t:Name><t:ContentType>application/pdf</t:ContentType><t:Size>12345</t:Size><t:IsInline>false</t:IsInline></t:FileAttachment>
-                <t:FileAttachment><t:AttachmentId Id="ATT2"/><t:Name>logo.png</t:Name><t:ContentType>image/png</t:ContentType><t:ContentId>logo@x</t:ContentId><t:IsInline>true</t:IsInline></t:FileAttachment>
-                <t:ItemAttachment><t:AttachmentId Id="ATT3"/><t:Name>Fwd mail</t:Name></t:ItemAttachment>
-              </t:Attachments>
-              <t:ToRecipients><t:Mailbox><t:Name>Jane</t:Name><t:EmailAddress>jane@contoso.com</t:EmailAddress></t:Mailbox><t:Mailbox><t:EmailAddress>al@contoso.com</t:EmailAddress></t:Mailbox></t:ToRecipients>
-              <t:CcRecipients><t:Mailbox><t:EmailAddress>cc@contoso.com</t:EmailAddress></t:Mailbox></t:CcRecipients>
-              <t:From><t:Mailbox><t:Name>Bob</t:Name><t:EmailAddress>bob@contoso.com</t:EmailAddress></t:Mailbox></t:From>
-              <t:InternetMessageId>&lt;abc@contoso.com&gt;</t:InternetMessageId>
-              <t:IsRead>true</t:IsRead>
-            </t:Message></m:Items>
-            """)));
-        using var p = fake.CreateProvider();
-
-        var m = await p.GetMessageAsync("AAA=");
-
-        Assert.Empty(fake.ValidationErrors);
-        Assert.True(m.BodyIsHtml);
-        Assert.Contains("cid:logo@x", m.Body);
-        Assert.Equal(2, m.To.Count);
-        Assert.Equal("cc@contoso.com", m.Cc.Single().Address);
-        Assert.Equal(3, m.Attachments.Count);
-        Assert.True(m.Attachments[1].IsInline);
-        Assert.Equal("logo@x", m.Attachments[1].ContentId);
-        Assert.True(m.Attachments[2].IsItemAttachment);
-        Assert.Equal("Fwd mail.eml", m.Attachments[2].Name);
-        Assert.Equal("<abc@contoso.com>", m.InternetMessageId);
-    }
-
-    [Fact]
     public async Task GetAttachment_decodes_file_content()
     {
         var data = new byte[] { 1, 2, 3, 4, 5 };
@@ -261,111 +224,6 @@ public class ExchangeProviderTests
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal(data, a.Content);
         Assert.Equal("a.bin", a.Info.Name);
-    }
-
-    [Fact]
-    public async Task Send_without_attachments_uses_single_CreateItem()
-    {
-        var fake = new FakeEws().On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items/>")));
-        using var p = fake.CreateProvider();
-
-        await p.SendAsync(new OutgoingMessage
-        {
-            To = { new EmailAddress("Bob", "bob@contoso.com") },
-            Cc = { new EmailAddress("", "cc@contoso.com") },
-            Subject = "Hello",
-            Body = "<p>Hi</p>",
-            Importance = Importance.High,
-            RequestReadReceipt = true,
-        });
-
-        Assert.Empty(fake.ValidationErrors);
-        var req = fake.Last("CreateItem");
-        Assert.Equal("SendAndSaveCopy", req.Attribute("MessageDisposition")!.Value);
-        var msg = req.Descendants(T + "Message").Single();
-        Assert.Equal("Hello", msg.Element(T + "Subject")!.Value);
-        Assert.Equal("HTML", msg.Element(T + "Body")!.Attribute("BodyType")!.Value);
-        Assert.Equal("bob@contoso.com", msg.Element(T + "ToRecipients")!.Descendants(T + "EmailAddress").Single().Value);
-    }
-
-    [Fact]
-    public async Task Send_with_attachments_creates_draft_uploads_then_sends_with_latest_changekey()
-    {
-        var fake = new FakeEws()
-            .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Message><t:ItemId Id=\"DRAFT\" ChangeKey=\"CK0\"/></t:Message></m:Items>")))
-            .On("CreateAttachment", Response("CreateAttachment", Success("CreateAttachment",
-                "<m:Attachments><t:FileAttachment><t:AttachmentId Id=\"A1\" RootItemId=\"DRAFT\" RootItemChangeKey=\"CK1\"/></t:FileAttachment></m:Attachments>")))
-            .On("CreateAttachment", Response("CreateAttachment", Success("CreateAttachment",
-                "<m:Attachments><t:FileAttachment><t:AttachmentId Id=\"A2\" RootItemId=\"DRAFT\" RootItemChangeKey=\"CK2\"/></t:FileAttachment></m:Attachments>")))
-            .On("SendItem", Response("SendItem", Success("SendItem")));
-        using var p = fake.CreateProvider();
-
-        await p.SendAsync(new OutgoingMessage
-        {
-            To = { new EmailAddress("", "bob@contoso.com") },
-            Subject = "Files",
-            Body = "see attached",
-            Attachments =
-            {
-                new OutgoingAttachment { Name = "a.txt", ContentType = "text/plain", Content = "hello"u8.ToArray() },
-                new OutgoingAttachment { Name = "b.png", ContentType = "image/png", Content = new byte[] { 9, 9 }, IsInline = true, ContentId = "img1" },
-            },
-        });
-
-        Assert.Empty(fake.ValidationErrors);
-        Assert.Equal(new[] { "CreateItem", "CreateAttachment", "CreateAttachment", "SendItem" }, fake.Requests.Select(r => r.Name.LocalName));
-        Assert.Equal("SaveOnly", fake.Requests[0].Attribute("MessageDisposition")!.Value);
-        Assert.Equal("CK0", fake.Requests[1].Element(M + "ParentItemId")!.Attribute("ChangeKey")!.Value);
-        Assert.Equal("CK1", fake.Requests[2].Element(M + "ParentItemId")!.Attribute("ChangeKey")!.Value);
-        Assert.Equal("aGVsbG8=", fake.Requests[1].Descendants(T + "Content").Single().Value);
-        var sendId = fake.Last("SendItem").Descendants(T + "ItemId").Single();
-        Assert.Equal("DRAFT", sendId.Attribute("Id")!.Value);
-        Assert.Equal("CK2", sendId.Attribute("ChangeKey")!.Value);
-    }
-
-    [Theory]
-    [InlineData(ComposeAction.Reply, "ReplyToItem")]
-    [InlineData(ComposeAction.ReplyAll, "ReplyAllToItem")]
-    [InlineData(ComposeAction.Forward, "ForwardItem")]
-    public async Task Reply_and_forward_use_response_objects(ComposeAction action, string element)
-    {
-        var fake = new FakeEws()
-            .On("GetItem", Response("GetItem", Success("GetItem", "<m:Items><t:Message><t:ItemId Id=\"ORIG\" ChangeKey=\"CKO\"/></t:Message></m:Items>")))
-            .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items/>")));
-        using var p = fake.CreateProvider();
-
-        await p.SendAsync(new OutgoingMessage
-        {
-            Action = action,
-            ReferenceItemId = "ORIG",
-            To = { new EmailAddress("Bob", "bob@contoso.com") },
-            Subject = "RE: Hello",
-            Body = "<p>Thanks!</p>",
-        });
-
-        Assert.Empty(fake.ValidationErrors);
-        var resp = fake.Last("CreateItem").Descendants(T + element).Single();
-        var refId = resp.Element(T + "ReferenceItemId")!;
-        Assert.Equal("ORIG", refId.Attribute("Id")!.Value);
-        Assert.Equal("CKO", refId.Attribute("ChangeKey")!.Value);
-        Assert.Equal("<p>Thanks!</p>", resp.Element(T + "NewBodyContent")!.Value);
-    }
-
-    [Fact]
-    public async Task Save_draft_for_shared_mailbox_sets_from_and_mailbox_scoped_folder()
-    {
-        var fake = new FakeEws().On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Message><t:ItemId Id=\"D\" ChangeKey=\"C\"/></t:Message></m:Items>")));
-        var account = Account();
-        account.SharedMailbox = "team@contoso.com";
-        using var p = new ExchangeProvider(account, new HttpClient(fake));
-
-        var id = await p.SaveDraftAsync(new OutgoingMessage { Subject = "draft", Body = "x" });
-
-        Assert.Empty(fake.ValidationErrors);
-        Assert.Equal("D", id);
-        var req = fake.Last("CreateItem");
-        Assert.Equal("team@contoso.com", req.Descendants(T + "DistinguishedFolderId").Single().Descendants(T + "EmailAddress").Single().Value);
-        Assert.Equal("team@contoso.com", req.Descendants(T + "From").Single().Descendants(T + "EmailAddress").Single().Value);
     }
 
     [Fact]
@@ -406,30 +264,6 @@ public class ExchangeProviderTests
         await p.SetFlagAsync(new[] { "A" }, FlagStatus.Flagged);
         await p.SetFlagAsync(new[] { "A" }, FlagStatus.NotFlagged);
         Assert.Empty(fake.ValidationErrors);
-    }
-
-    [Fact]
-    public async Task Folder_operations_produce_schema_valid_requests()
-    {
-        var fake = new FakeEws()
-            .On("CreateFolder", Response("CreateFolder", Success("CreateFolder", "<m:Folders><t:Folder><t:FolderId Id=\"NEWF\" ChangeKey=\"K\"/></t:Folder></m:Folders>")))
-            .On("UpdateFolder", Response("UpdateFolder", Success("UpdateFolder")))
-            .On("MoveFolder", Response("MoveFolder", Success("MoveFolder")))
-            .On("DeleteFolder", Response("DeleteFolder", Success("DeleteFolder")))
-            .On("EmptyFolder", Response("EmptyFolder", Success("EmptyFolder")));
-        using var p = fake.CreateProvider();
-
-        var f = await p.CreateFolderAsync("inbox", "Projects");
-        await p.CreateFolderAsync("msgfolderroot", "Team calendar", FolderKind.Calendar);
-        await p.RenameFolderAsync("NEWF", "Projects 2026");
-        await p.MoveFolderAsync("NEWF", "msgfolderroot");
-        await p.EmptyFolderAsync("deleteditems", true);
-        await p.DeleteFolderAsync("NEWF", false);
-
-        Assert.Empty(fake.ValidationErrors);
-        Assert.Equal("NEWF", f.Id);
-        Assert.Equal("HardDelete", fake.Last("EmptyFolder").Attribute("DeleteType")!.Value);
-        Assert.Equal("MoveToDeletedItems", fake.Last("DeleteFolder").Attribute("DeleteType")!.Value);
     }
 
     [Fact]
@@ -654,6 +488,299 @@ public class ExchangeProviderTests
         Assert.Equal(1, drop.Drops);
         Assert.Empty(fake.Requests);
         Assert.Contains("CreateItem", ex.Message);
+    }
+
+    [Fact]
+    public async Task Folder_operations_follow_thunderbird()
+    {
+        var fake = new FakeEws()
+            .On("CreateFolder", Response("CreateFolder", Success("CreateFolder", "<m:Folders><t:Folder><t:FolderId Id=\"NEWF\" ChangeKey=\"K\"/></t:Folder></m:Folders>")))
+            .On("UpdateFolder", Response("UpdateFolder", Success("UpdateFolder")))
+            .On("MoveFolder", Response("MoveFolder", Success("MoveFolder")))
+            .On("DeleteFolder", Response("DeleteFolder", Success("DeleteFolder")))
+            .On("EmptyFolder", Response("EmptyFolder", Success("EmptyFolder")));
+        using var p = fake.CreateProvider();
+
+        var f = await p.CreateFolderAsync("inbox", "Проекты");
+        await p.RenameFolderAsync("NEWF", "Проекты 2026");
+        await p.DeleteFolderAsync("NEWF", permanent: false);
+        await p.DeleteFolderAsync("NEWF", permanent: true);
+        await p.EmptyFolderAsync("deleteditems", false);
+
+        Assert.Empty(fake.ValidationErrors);
+        Assert.Equal("NEWF", f.Id);
+        Assert.Equal("IPF.Note", fake.Last("CreateFolder").Descendants(T + "FolderClass").Single().Value);
+        // Not permanent: moved to Deleted Items; permanent: HardDelete (erase_folder.rs).
+        Assert.Equal("deleteditems", fake.Last("MoveFolder").Element(M + "ToFolderId")!.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
+        Assert.Equal("HardDelete", fake.Last("DeleteFolder").Attribute("DeleteType")!.Value);
+        var empty = fake.Last("EmptyFolder");
+        Assert.Equal("HardDelete", empty.Attribute("DeleteType")!.Value);
+        Assert.Equal("true", empty.Attribute("DeleteSubFolders")!.Value);
+    }
+
+    // ------------------------------------------------------------------ MIME-based messages (Thunderbird)
+
+    private static byte[] Mime(string subject, string html, string? attachment = null, string? messageId = null)
+    {
+        var m = new MimeKit.MimeMessage();
+        m.From.Add(new MimeKit.MailboxAddress("Петров Пётр", "petrov@contoso.ru"));
+        m.To.Add(new MimeKit.MailboxAddress("Иванов Иван", "ivanov@contoso.ru"));
+        m.Subject = subject;
+        m.MessageId = messageId ?? MimeKit.Utils.MimeUtils.GenerateMessageId("contoso.ru");
+        var b = new MimeKit.BodyBuilder { HtmlBody = html };
+        var logo = b.LinkedResources.Add("logo.png", new byte[] { 137, 80, 78, 71 }, new MimeKit.ContentType("image", "png"));
+        logo.ContentId = "logo@x";
+        if (attachment != null) b.Attachments.Add(attachment, "данные"u8.ToArray(), new MimeKit.ContentType("text", "plain"));
+        m.Body = b.ToMessageBody();
+        using var ms = new MemoryStream();
+        m.WriteTo(ms);
+        return ms.ToArray();
+    }
+
+    private static string MimeItem(string id, byte[] mime, bool read = false) =>
+        $"<t:Message><t:MimeContent CharacterSet=\"UTF-8\">{Convert.ToBase64String(mime)}</t:MimeContent><t:ItemId Id=\"{id}\" ChangeKey=\"CK\"/>" +
+        $"<t:ItemClass>IPM.Note</t:ItemClass><t:Subject>s</t:Subject><t:IsRead>{(read ? "true" : "false")}</t:IsRead></t:Message>";
+
+    private static MimeKit.MimeMessage SentMime(XElement createItem) =>
+        MimeKit.MimeMessage.Load(new MemoryStream(Convert.FromBase64String(createItem.Descendants(T + "MimeContent").Single().Value)));
+
+    [Fact]
+    public async Task GetMessage_reads_mime_like_thunderbird_and_serves_attachments_from_it()
+    {
+        var fake = new FakeEws().ServeItems(new Dictionary<string, string>
+        {
+            ["M1"] = MimeItem("M1", Mime("Отчёт", "<p>Привет <img src=\"cid:logo@x\"></p>", "Отчёт 2026.txt")),
+        });
+        using var p = fake.CreateProvider();
+
+        var m = await p.GetMessageAsync("M1");
+
+        Assert.Empty(fake.ValidationErrors);
+        var get = fake.Last("GetItem");
+        Assert.Equal("IdOnly", get.Descendants(T + "BaseShape").Single().Value);
+        Assert.Equal("true", get.Descendants(T + "IncludeMimeContent").Single().Value);
+        Assert.Equal("Отчёт", m.Subject);
+        Assert.True(m.BodyIsHtml);
+        Assert.Contains("cid:logo@x", m.Body);
+        Assert.Equal("petrov@contoso.ru", m.From!.Address);
+        Assert.Equal("ivanov@contoso.ru", m.To.Single().Address);
+        Assert.False(m.IsRead);
+        Assert.Equal(2, m.Attachments.Count);
+        var inline = m.Attachments.Single(a => a.IsInline);
+        Assert.Equal("logo@x", inline.ContentId);
+        var file = m.Attachments.Single(a => !a.IsInline);
+        Assert.Equal("Отчёт 2026.txt", file.Name);
+
+        // Attachments come from the already downloaded MIME: no extra server round trip.
+        int before = fake.Requests.Count;
+        var content = await p.GetAttachmentsAsync(new[] { file.Id, inline.Id });
+        Assert.Equal(before, fake.Requests.Count);
+        Assert.Equal("данные", System.Text.Encoding.UTF8.GetString(content[0].Content));
+        Assert.Equal(new byte[] { 137, 80, 78, 71 }, content[1].Content);
+    }
+
+    [Fact]
+    public async Task Send_uses_mime_sendonly_with_separate_bcc_then_saves_sent_copy()
+    {
+        var fake = new FakeEws()
+            .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items/>")))
+            .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Message><t:ItemId Id=\"SENT1\"/></t:Message></m:Items>")));
+        using var p = fake.CreateProvider();
+
+        await p.SendAsync(new OutgoingMessage
+        {
+            To = { new EmailAddress("Боб", "bob@contoso.ru") },
+            Bcc = { new EmailAddress("", "secret@contoso.ru") },
+            Subject = "Договор",
+            Body = "<p>Добрый день</p>",
+            Importance = Importance.High,
+            RequestDeliveryReceipt = true,
+            Attachments = { new OutgoingAttachment { Name = "Договор №5.pdf", ContentType = "application/pdf", Content = new byte[] { 37, 80, 68, 70 } } },
+        });
+
+        Assert.Empty(fake.ValidationErrors);
+        var creates = fake.All("CreateItem").ToList();
+        Assert.Equal(2, creates.Count);
+        Assert.Empty(fake.All("CreateAttachment"));
+
+        var send = creates[0];
+        Assert.Equal("SendOnly", send.Attribute("MessageDisposition")!.Value);
+        Assert.Null(send.Element(M + "SavedItemFolderId"));
+        var transmitted = SentMime(send);
+        Assert.Equal("Договор", transmitted.Subject);
+        Assert.Equal("bob@contoso.ru", transmitted.To.Mailboxes.Single().Address);
+        Assert.Empty(transmitted.Bcc);                       // never visible to recipients
+        Assert.Equal("secret@contoso.ru", send.Descendants(T + "BccRecipients").Single().Descendants(T + "EmailAddress").Single().Value);
+        Assert.Equal("true", send.Descendants(T + "IsDeliveryReceiptRequested").Single().Value);
+        Assert.Equal($"<{transmitted.MessageId}>", send.Descendants(T + "InternetMessageId").Single().Value);
+        Assert.Equal(MimeKit.MessageImportance.High, transmitted.Importance);
+        Assert.Equal("Договор №5.pdf", transmitted.Attachments.OfType<MimeKit.MimePart>().Single().FileName);
+
+        var copy = creates[1];
+        Assert.Equal("SaveOnly", copy.Attribute("MessageDisposition")!.Value);
+        Assert.Equal("sentitems", copy.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
+        Assert.Equal("3", copy.Descendants(T + "ExtendedProperty").Single().Element(T + "Value")!.Value); // READ|UNMODIFIED
+        Assert.Equal("secret@contoso.ru", SentMime(copy).Bcc.Mailboxes.Single().Address); // the sender keeps the Bcc list
+    }
+
+    [Theory]
+    [InlineData(ComposeAction.Reply)]
+    [InlineData(ComposeAction.ReplyAll)]
+    [InlineData(ComposeAction.Forward)]
+    public async Task Reply_and_forward_are_composed_locally_from_the_original_mime(ComposeAction action)
+    {
+        var originalId = MimeKit.Utils.MimeUtils.GenerateMessageId("contoso.ru");
+        var fake = new FakeEws()
+            .ServeItems(new Dictionary<string, string> { ["ORIG"] = MimeItem("ORIG", Mime("Вопрос", "<p>Подскажите сроки</p>", "ТЗ.txt", originalId)) })
+            .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items/>")))
+            .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Message><t:ItemId Id=\"S\"/></t:Message></m:Items>")));
+        using var p = fake.CreateProvider();
+
+        await p.SendAsync(new OutgoingMessage
+        {
+            Action = action,
+            ReferenceItemId = "ORIG",
+            To = { new EmailAddress("Петров Пётр", "petrov@contoso.ru") },
+            Subject = action == ComposeAction.Forward ? "FW: Вопрос" : "RE: Вопрос",
+            Body = "<p>До пятницы.</p>",
+        });
+
+        Assert.Empty(fake.ValidationErrors);
+        Assert.Empty(fake.Requests.Where(r => r.Descendants(T + "ReplyToItem").Any() || r.Descendants(T + "ForwardItem").Any()));
+        var sent = SentMime(fake.All("CreateItem").First());
+        Assert.Contains("До пятницы.", sent.HtmlBody);
+        Assert.Contains("Подскажите сроки", sent.HtmlBody);
+        if (action == ComposeAction.Forward)
+        {
+            Assert.Contains("Пересылаемое сообщение", sent.HtmlBody);
+            Assert.Equal("ТЗ.txt", sent.Attachments.OfType<MimeKit.MimePart>().Single().FileName);
+        }
+        else
+        {
+            Assert.Contains("Исходное сообщение", sent.HtmlBody);
+            Assert.Equal(originalId, sent.InReplyTo);
+            Assert.Contains(originalId, sent.References);
+        }
+    }
+
+    [Fact]
+    public async Task Drafts_and_imports_use_thunderbird_message_flags()
+    {
+        var fake = new FakeEws().On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Message><t:ItemId Id=\"D\" ChangeKey=\"C\"/></t:Message></m:Items>")));
+        var account = Account();
+        account.SharedMailbox = "team@contoso.ru";
+        using var p = new ExchangeProvider(account, new HttpClient(fake));
+
+        var id = await p.SaveDraftAsync(new OutgoingMessage { Subject = "черновик", Body = "x", Bcc = { new EmailAddress("", "b@contoso.ru") } });
+        await p.ImportMimeAsync("inbox", Mime("Импорт", "<p>x</p>"));
+
+        Assert.Empty(fake.ValidationErrors);
+        Assert.Equal("D", id);
+        var (draft, import) = (fake.All("CreateItem").First(), fake.All("CreateItem").Last());
+        Assert.Equal("SaveOnly", draft.Attribute("MessageDisposition")!.Value);
+        var draftFolder = draft.Descendants(T + "DistinguishedFolderId").Single();
+        Assert.Equal("drafts", draftFolder.Attribute("Id")!.Value);
+        Assert.Equal("team@contoso.ru", draftFolder.Descendants(T + "EmailAddress").Single().Value);
+        Assert.Equal("9", draft.Descendants(T + "ExtendedProperty").Single().Element(T + "Value")!.Value);  // READ|UNSENT
+        Assert.Equal("team@contoso.ru", SentMime(draft).From.Mailboxes.Single().Address);
+        Assert.Equal("b@contoso.ru", SentMime(draft).Bcc.Mailboxes.Single().Address);
+        Assert.Equal("3", import.Descendants(T + "ExtendedProperty").Single().Element(T + "Value")!.Value); // READ|UNMODIFIED
+    }
+
+    [Fact]
+    public async Task Read_status_is_updated_like_thunderbird_without_changekey()
+    {
+        var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem"), Success("UpdateItem")));
+        using var p = fake.CreateProvider();
+
+        await p.SetReadStateAsync(new[] { "A", "B" }, true);
+
+        Assert.Empty(fake.ValidationErrors);
+        var req = fake.Last("UpdateItem");
+        Assert.Equal("AlwaysOverwrite", req.Attribute("ConflictResolution")!.Value);
+        Assert.Equal("SaveOnly", req.Attribute("MessageDisposition")!.Value);
+        Assert.All(req.Descendants(T + "ItemId"), id => Assert.Null(id.Attribute("ChangeKey")));
+        Assert.Equal(2, req.Descendants(T + "ItemChange").Count());
+    }
+
+    [Fact]
+    public async Task Read_status_error_for_a_message_deleted_meanwhile_is_ignored()
+    {
+        var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem"), Error("UpdateItem", "ErrorItemNotFound")));
+        using var p = fake.CreateProvider();
+        await p.SetReadStateAsync(new[] { "A", "GONE" }, true);
+    }
+
+    [Theory]
+    [InlineData(ExchangeServerVersion.Exchange2016, FlagStatus.Flagged, "2", true)]
+    [InlineData(ExchangeServerVersion.Exchange2016, FlagStatus.NotFlagged, "0", true)]
+    [InlineData(ExchangeServerVersion.Exchange2010_SP2, FlagStatus.Flagged, "2", false)]
+    public async Task Flag_sets_item_flag_and_pr_flag_status_like_thunderbird(ExchangeServerVersion version, FlagStatus flag, string pid, bool itemFlag)
+    {
+        var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem")));
+        using var p = fake.CreateProvider(version);
+
+        await p.SetFlagAsync(new[] { "A" }, flag);
+
+        Assert.Empty(fake.ValidationErrors);
+        var req = fake.Last("UpdateItem");
+        Assert.Equal("AlwaysOverwrite", req.Attribute("ConflictResolution")!.Value);
+        Assert.Equal(pid, req.Descendants(T + "ExtendedProperty").Single().Element(T + "Value")!.Value);
+        Assert.Equal(itemFlag, req.Descendants(T + "FlagStatus").Any());
+    }
+
+    [Fact]
+    public async Task Mark_all_read_and_junk_use_the_dedicated_operations()
+    {
+        var fake = new FakeEws()
+            .On("MarkAllItemsAsRead", Response("MarkAllItemsAsRead", Success("MarkAllItemsAsRead")))
+            .On("MarkAsJunk", Response("MarkAsJunk",
+                Success("MarkAsJunk", "<m:MovedItemId Id=\"J1\"/>"), Success("MarkAsJunk", "<m:MovedItemId Id=\"J2\"/>")));
+        using var p = fake.CreateProvider();
+
+        Assert.True(await p.MarkAllReadAsync("inbox", true));
+        var moved = await p.MarkAsJunkAsync(new[] { "A", "B" }, isJunk: true);
+
+        Assert.Empty(fake.ValidationErrors);
+        var all = fake.Last("MarkAllItemsAsRead");
+        Assert.Equal("true", all.Element(M + "ReadFlag")!.Value);
+        Assert.Equal("true", all.Element(M + "SuppressReadReceipts")!.Value);
+        var junk = fake.Last("MarkAsJunk");
+        Assert.Equal("true", junk.Attribute("IsJunk")!.Value);
+        Assert.Equal("true", junk.Attribute("MoveItem")!.Value);
+        Assert.Equal(new[] { "J1", "J2" }, moved);
+    }
+
+    [Fact]
+    public async Task Exchange2010_falls_back_for_mark_all_read_and_junk()
+    {
+        var fake = new FakeEws().On("MoveItem", Response("MoveItem", Success("MoveItem", "<m:Items><t:Message><t:ItemId Id=\"N\"/></t:Message></m:Items>")));
+        using var p = fake.CreateProvider(ExchangeServerVersion.Exchange2010_SP2);
+
+        Assert.False(await p.MarkAllReadAsync("inbox", true));
+        var moved = await p.MarkAsJunkAsync(new[] { "A" }, isJunk: true);
+
+        Assert.Empty(fake.ValidationErrors);
+        Assert.Equal("junkemail", fake.Last("MoveItem").Element(M + "ToFolderId")!.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
+        Assert.Equal("N", moved.Single());
+    }
+
+    [Fact]
+    public async Task Delete_moves_to_deleted_items_permanent_delete_is_hard_delete()
+    {
+        var fake = new FakeEws()
+            .On("MoveItem", Response("MoveItem", Success("MoveItem", "<m:Items><t:Message><t:ItemId Id=\"N\"/></t:Message></m:Items>")))
+            .On("DeleteItem", Response("DeleteItem", Success("DeleteItem"), Error("DeleteItem", "ErrorItemNotFound")));
+        using var p = fake.CreateProvider();
+
+        await p.DeleteItemsAsync(new[] { "A" }, permanent: false);
+        await p.DeleteItemsAsync(new[] { "A", "GONE" }, permanent: true);
+
+        Assert.Empty(fake.ValidationErrors);
+        var move = fake.Last("MoveItem");
+        Assert.Equal("deleteditems", move.Element(M + "ToFolderId")!.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
+        Assert.Equal("true", move.Element(M + "ReturnNewItemIds")!.Value);
+        Assert.Equal("HardDelete", fake.Last("DeleteItem").Attribute("DeleteType")!.Value);
     }
 
     [Fact]
