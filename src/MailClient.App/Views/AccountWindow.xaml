@@ -35,10 +35,12 @@
                 <TextBox x:Name="DisplayNameBox"/>
 
                 <StackPanel x:Name="AuthPanel">
-                    <TextBlock Text="Способ входа" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="Аутентификация" Style="{StaticResource FieldLabel}"/>
                     <ComboBox x:Name="AuthCombo" SelectionChanged="AuthCombo_SelectionChanged">
-                        <ComboBoxItem Content="Имя пользователя и пароль (NTLM / Kerberos)" Tag="Password"/>
-                        <ComboBoxItem Content="Единый вход Windows (текущая учётная запись домена)" Tag="IntegratedWindows"/>
+                        <ComboBoxItem Content="NTLM — как в Thunderbird (рекомендуется)" Tag="Ntlm"/>
+                        <ComboBoxItem Content="Обычный пароль (Basic)" Tag="Basic"/>
+                        <ComboBoxItem Content="Kerberos (Negotiate)" Tag="Negotiate"/>
+                        <ComboBoxItem Content="Автоматически (Kerberos → NTLM → Basic)" Tag="Auto"/>
                     </ComboBox>
                 </StackPanel>
 
@@ -50,8 +52,12 @@
                     <TextBlock x:Name="UserHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap" Text="Логин Windows (ДОМЕН\логин или логин@домен). Он может отличаться от адреса почты — при проверке подключения программа попробует несколько вариантов."/>
                     <TextBlock Text="Пароль" Style="{StaticResource FieldLabel}"/>
                     <PasswordBox x:Name="PasswordBox"/>
-                    <TextBlock x:Name="PasswordHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
-                               Text="Пароль хранится только на этом компьютере в зашифрованном виде (Windows DPAPI)."/>
+                    <DockPanel Margin="0,3,0,0">
+                        <Button x:Name="ForgetPasswordButton" DockPanel.Dock="Right" Content="Забыть сохранённый пароль" Padding="8,2" MinHeight="24"
+                                Margin="8,0,0,0" Click="ForgetPassword_Click" Visibility="Collapsed"/>
+                        <TextBlock x:Name="PasswordHint" Style="{StaticResource Caption}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="Пароль хранится только на этом компьютере в зашифрованном виде (Windows DPAPI)."/>
+                    </DockPanel>
                 </StackPanel>
 
                 <StackPanel x:Name="ExchangePanel">
@@ -131,15 +137,7 @@
                 <Expander Header="Дополнительно" Margin="0,18,0,0" Foreground="{DynamicResource Brush.Text}">
                     <StackPanel Margin="0,4,0,0">
                         <StackPanel x:Name="ExchangeAdvanced">
-                        <TextBlock Text="Протокол проверки подлинности" Style="{StaticResource FieldLabel}"/>
-                        <ComboBox x:Name="SchemeCombo">
-                            <ComboBoxItem Content="Автоматически (Kerberos → NTLM → Basic)" Tag="Auto"/>
-                            <ComboBoxItem Content="NTLM (как в Thunderbird)" Tag="Ntlm"/>
-                            <ComboBoxItem Content="Kerberos (Negotiate)" Tag="Negotiate"/>
-                            <ComboBoxItem Content="Basic" Tag="Basic"/>
-                        </ComboBox>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
-                                   Text="Если при «Автоматически» сервер отклоняет верный пароль, выберите NTLM. Проверка подключения подбирает протокол сама."/>
+
 
                         <TextBlock Text="Домен (если не указан в имени пользователя)" Style="{StaticResource FieldLabel}"/>
                         <TextBox x:Name="DomainBox"/>

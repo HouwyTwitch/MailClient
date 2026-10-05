@@ -9,6 +9,9 @@ public enum AppTheme { System, Light, Dark }
 
 public sealed class AppSettings
 {
+    /// <summary>Format version, used to migrate older settings files.</summary>
+    public int SettingsVersion { get; set; }
+
     public List<AccountSettings> Accounts { get; set; } = new();
     public AppTheme Theme { get; set; } = AppTheme.System;
     /// <summary>Remote images are blocked by default (tracking pixels, privacy).</summary>
@@ -40,7 +43,7 @@ public static class SettingsStore
         try
         {
             if (File.Exists(AppPaths.SettingsFile))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile), Options) ?? new AppSettings();
+                return Migrate(JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile), Options) ?? new AppSettings());
         }
         catch (Exception ex)
         {
@@ -48,6 +51,26 @@ public static class SettingsStore
             try { File.Copy(AppPaths.SettingsFile, AppPaths.SettingsFile + ".broken", true); } catch { }
         }
         return new AppSettings();
+    }
+
+    private const int CurrentVersion = 2;
+
+    /// <summary>
+    /// v2: Exchange sign-in follows Thunderbird — NTLM by default, and "Windows single sign-on" became
+    /// "NTLM with an empty password" (the logged-on Windows user).
+    /// </summary>
+    private static AppSettings Migrate(AppSettings s)
+    {
+        if (s.SettingsVersion >= CurrentVersion) return s;
+        foreach (var a in s.Accounts.Where(a => a.Protocol == MailClient.Core.Models.MailProtocol.Exchange))
+        {
+            if (a.AuthScheme == MailClient.Core.Models.HttpAuthScheme.Auto) a.AuthScheme = MailClient.Core.Models.HttpAuthScheme.Ntlm;
+            if (a.AuthMethod == MailClient.Core.Models.AuthMethod.IntegratedWindows) a.AuthMethod = MailClient.Core.Models.AuthMethod.Password;
+        }
+        Log.Info($"Настройки обновлены до версии {CurrentVersion}: вход в Exchange по NTLM, как в Thunderbird");
+        s.SettingsVersion = CurrentVersion;
+        Save(s);
+        return s;
     }
 
     public static void Save(AppSettings settings)

@@ -29,6 +29,8 @@ internal sealed class FakeEws : HttpMessageHandler
 
     private readonly Dictionary<string, Queue<Func<XElement, HttpResponseMessage>>> _responders = new();
     public List<XElement> Requests { get; } = new();
+    public List<XDocument> Envelopes { get; } = new();
+    public List<HttpRequestMessage> HttpRequests { get; } = new();
     public List<string> ValidationErrors { get; } = new();
 
     public FakeEws On(string operation, string bodyXml, HttpStatusCode status = HttpStatusCode.OK) =>
@@ -47,6 +49,8 @@ internal sealed class FakeEws : HttpMessageHandler
     {
         var text = await request.Content!.ReadAsStringAsync(ct);
         var doc = XDocument.Parse(text);
+        Envelopes.Add(doc);
+        HttpRequests.Add(request);
         var op = doc.Root!.Element(Soap + "Body")!.Elements().First();
         Requests.Add(op);
         Validate(op);

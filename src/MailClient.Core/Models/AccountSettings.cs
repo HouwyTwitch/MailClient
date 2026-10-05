@@ -61,8 +61,8 @@ public sealed class AccountSettings
 
     public AuthMethod AuthMethod { get; set; } = AuthMethod.Password;
 
-    /// <summary>Which HTTP authentication scheme to use with Exchange.</summary>
-    public HttpAuthScheme AuthScheme { get; set; } = HttpAuthScheme.Auto;
+    /// <summary>Which HTTP authentication scheme to use with Exchange. NTLM by default, as in Thunderbird.</summary>
+    public HttpAuthScheme AuthScheme { get; set; } = HttpAuthScheme.Ntlm;
 
     /// <summary>Login name: user@domain (UPN), DOMAIN\user or just user (with <see cref="Domain"/>).</summary>
     public string UserName { get; set; } = "";

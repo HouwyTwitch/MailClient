@@ -34,7 +34,7 @@ public static class ExchangeHttp
         switch (account.AuthMethod)
         {
             case AuthMethod.Password:
-                sockets.Credentials = RestrictScheme(BuildNetworkCredential(account, credentials.GetPassword(account.Id) ?? ""), account.AuthScheme);
+                sockets.Credentials = BuildCredentials(account, credentials.GetPassword(account.Id) ?? "");
                 return sockets;
             case AuthMethod.IntegratedWindows:
                 sockets.Credentials = RestrictScheme(CredentialCache.DefaultNetworkCredentials, account.AuthScheme);
@@ -59,6 +59,20 @@ public static class ExchangeHttp
         _ => credential,
     };
 
+    /// <summary>
+    /// Credentials the way Thunderbird hands them to Firefox's network stack (nsHttpNTLMAuth / nsAuthSSPI):
+    /// NTLM answers only the plain "NTLM" challenge, never Negotiate/Kerberos; an empty password means
+    /// "sign in as the logged-on Windows user" (SSPI default credentials); "DOMAIN\user" is split into
+    /// domain and user, "user@domain" is sent as is.
+    /// </summary>
+    public static ICredentials BuildCredentials(AccountSettings account, string password)
+    {
+        var credential = string.IsNullOrEmpty(password) && account.AuthScheme != HttpAuthScheme.Basic
+            ? CredentialCache.DefaultNetworkCredentials
+            : BuildNetworkCredential(account, password);
+        return RestrictScheme(credential, account.AuthScheme);
+    }
+
     public static HttpClient CreateClient(AccountSettings account, ICredentialProvider credentials)
     {
         var client = new HttpClient(CreateHandler(account, credentials), disposeHandler: true)
@@ -67,7 +81,10 @@ public static class ExchangeHttp
             Timeout = TimeSpan.FromMinutes(10),
         };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MailClient", "0.1"));
-        client.DefaultRequestHeaders.Add("X-AnchorMailbox", string.IsNullOrWhiteSpace(account.SharedMailbox) ? account.EmailAddress : account.SharedMailbox);
+        // Like Thunderbird, send no routing hints to on-premises Exchange; X-AnchorMailbox is only needed for
+        // OAuth against Exchange Online.
+        if (account.AuthMethod == AuthMethod.OAuth2)
+            client.DefaultRequestHeaders.Add("X-AnchorMailbox", string.IsNullOrWhiteSpace(account.SharedMailbox) ? account.EmailAddress : account.SharedMailbox);
         return client;
     }
 

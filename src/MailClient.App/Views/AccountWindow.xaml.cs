@@ -18,6 +18,7 @@ public partial class AccountWindow : Window
     private readonly OrganizationDefaults _org;
     private string _certPem;
     private bool _passwordChanged;
+    private bool _forgetStoredPassword;
     private bool _initialized;
 
     private bool IsImap => TagOf(ProtocolCombo) == "Imap";
@@ -35,12 +36,7 @@ public partial class AccountWindow : Window
         _credentials = credentials;
         _isNew = isNew;
         _org = OrganizationDefaults.Load();
-        if (isNew)
-        {
-            // On a domain computer default to Windows single sign-on (as Thunderbird/Outlook do), unless policy says otherwise.
-            if (IsDomainJoined && string.IsNullOrWhiteSpace(_org.AuthMethod)) account.AuthMethod = AuthMethod.IntegratedWindows;
-            _org.ApplyTo(account);
-        }
+        if (isNew) _org.ApplyTo(account);
         _certPem = account.TrustedRootCertificatesPem;
 
         HeaderText.Text = isNew ? "Новая учётная запись" : "Настройки учётной записи";
@@ -51,9 +47,8 @@ public partial class AccountWindow : Window
         EwsBox.Text = account.EwsUrl;
         SharedBox.Text = account.SharedMailbox;
         SignatureBox.Text = account.Signature;
-        Select(AuthCombo, account.AuthMethod == AuthMethod.IntegratedWindows ? "IntegratedWindows" : "Password");
+        Select(AuthCombo, account.AuthScheme.ToString());
         Select(VersionCombo, account.ServerVersion.ToString());
-        Select(SchemeCombo, account.AuthScheme.ToString());
         Select(IntervalCombo, account.SyncIntervalSeconds.ToString());
         ImapHostBox.Text = account.ImapHost;
         ImapPortBox.Text = account.ImapPort.ToString();
@@ -71,7 +66,10 @@ public partial class AccountWindow : Window
 
         // Never prefill the password box: typing into a placeholder would corrupt the password.
         if (!isNew && credentials.GetPassword(account.Id) is { Length: > 0 })
+        {
             PasswordHint.Text = "Пароль сохранён. Оставьте поле пустым, чтобы не менять его.";
+            ForgetPasswordButton.Visibility = Visibility.Visible;
+        }
         PasswordBox.PasswordChanged += (_, _) => _passwordChanged = PasswordBox.Password.Length > 0;
 
         if (_org.LockServerSettings && !string.IsNullOrWhiteSpace(_org.EwsUrl))
@@ -104,11 +102,12 @@ public partial class AccountWindow : Window
         ExchangePanel.Visibility = imap ? Visibility.Collapsed : Visibility.Visible;
         ExchangeAdvanced.Visibility = imap ? Visibility.Collapsed : Visibility.Visible;
         ImapPanel.Visibility = imap ? Visibility.Visible : Visibility.Collapsed;
-        PasswordPanel.Visibility = imap || TagOf(AuthCombo) == "Password" ? Visibility.Visible : Visibility.Collapsed;
-        SsoHint.Visibility = !imap && TagOf(AuthCombo) == "IntegratedWindows" ? Visibility.Visible : Visibility.Collapsed;
+        PasswordPanel.Visibility = Visibility.Visible;
+        // As in Thunderbird: with NTLM/Kerberos an empty password signs in as the logged-on Windows user.
+        SsoHint.Visibility = !imap && TagOf(AuthCombo) != "Basic" ? Visibility.Visible : Visibility.Collapsed;
         SsoHint.Text = IsDomainJoined
-            ? $"Будет использована текущая учётная запись Windows: {WindowsAccount}. Пароль вводить не нужно."
-            : "Компьютер не входит в домен: единый вход, скорее всего, не сработает. Выберите вход по имени пользователя и паролю.";
+            ? $"Пароль можно не вводить — тогда вход выполняется под текущей учётной записью Windows ({WindowsAccount}), как в Thunderbird."
+            : "Компьютер не входит в домен: введите имя пользователя (ДОМЕН\\логин) и пароль.";
         UserHint.Text = imap
             ? "Обычно это полный адрес электронной почты."
             : "Логин Windows (ДОМЕН\\логин или логин@домен). Он может отличаться от адреса почты — при проверке подключения программа попробует несколько вариантов.";
@@ -173,6 +172,16 @@ public partial class AccountWindow : Window
         if (IsImap && string.IsNullOrWhiteSpace(ImapHostBox.Text) && email.Contains('@')) ApplyGuessedPreset();
     }
 
+    private void ForgetPassword_Click(object sender, RoutedEventArgs e)
+    {
+        _forgetStoredPassword = true;
+        PasswordBox.Clear();
+        ForgetPasswordButton.Visibility = Visibility.Collapsed;
+        PasswordHint.Text = IsImap
+            ? "Сохранённый пароль будет удалён. Введите новый пароль."
+            : $"Сохранённый пароль будет удалён. Без пароля вход выполняется под учётной записью Windows ({WindowsAccount}).";
+    }
+
     private void UpdateCertText() =>
         CertText.Text = string.IsNullOrWhiteSpace(_certPem) ? "Не задан (используются сертификаты Windows)" : CertificateImport.Describe(_certPem);
 
@@ -207,7 +216,9 @@ public partial class AccountWindow : Window
         var a = _account.Clone();
         a.EmailAddress = EmailBox.Text.Trim();
         a.DisplayName = DisplayNameBox.Text.Trim();
-        a.AuthMethod = TagOf(AuthCombo) == "IntegratedWindows" ? AuthMethod.IntegratedWindows : AuthMethod.Password;
+        // Thunderbird model: one credential set (user + optional password) plus the HTTP auth scheme.
+        a.AuthMethod = AuthMethod.Password;
+        a.AuthScheme = Enum.Parse<HttpAuthScheme>(TagOf(AuthCombo));
         a.UserName = UserBox.Text.Trim();
         a.Domain = DomainBox.Text.Trim();
         a.EwsUrl = EwsBox.Text.Trim();
@@ -216,7 +227,6 @@ public partial class AccountWindow : Window
         a.Signature = SignatureBox.Text;
         a.SyncIntervalSeconds = int.Parse(TagOf(IntervalCombo));
         a.TrustedRootCertificatesPem = _certPem;
-        a.AuthScheme = Enum.Parse<HttpAuthScheme>(TagOf(SchemeCombo));
         a.Protocol = IsImap ? MailProtocol.Imap : MailProtocol.Exchange;
         a.ImapHost = ImapHostBox.Text.Trim();
         a.ImapPort = int.TryParse(ImapPortBox.Text.Trim(), out var ip) ? ip : 0;
@@ -240,24 +250,16 @@ public partial class AccountWindow : Window
     }
 
     private string EffectivePassword() =>
-        _passwordChanged || _isNew ? PasswordBox.Password : _credentials.GetPassword(_account.Id) ?? "";
+        _passwordChanged || _isNew ? PasswordBox.Password
+        : _forgetStoredPassword ? ""
+        : _credentials.GetPassword(_account.Id) ?? "";
 
     private string? Validate(AccountSettings a, bool requireEws)
     {
         if (!EmailAddress.LooksValid(a.EmailAddress)) return "Введите корректный адрес электронной почты.";
-        if (a.AuthMethod == AuthMethod.Password && string.IsNullOrEmpty(EffectivePassword()))
-        {
-            if (a.Protocol == MailProtocol.Exchange && IsDomainJoined)
-            {
-                Select(AuthCombo, "IntegratedWindows");
-                ApplyProtocolUi();
-                a.AuthMethod = AuthMethod.IntegratedWindows;
-            }
-            else
-            {
-                return "Введите пароль.";
-            }
-        }
+        // NTLM/Kerberos without a password use the Windows logon (as in Thunderbird); IMAP and Basic need one.
+        if (string.IsNullOrEmpty(EffectivePassword()) && (a.Protocol == MailProtocol.Imap || a.AuthScheme == HttpAuthScheme.Basic))
+            return "Введите пароль.";
         if (a.Protocol == MailProtocol.Imap)
         {
             if (a.ImapHost.Length == 0 || a.SmtpHost.Length == 0) return "Укажите серверы входящей (IMAP) и исходящей (SMTP) почты или нажмите «Заполнить по адресу».";
@@ -356,22 +358,21 @@ public partial class AccountWindow : Window
         _ => "автоматически",
     };
 
-    /// <summary>Authentication schemes to try: the chosen one, or (for "Auto") Auto, then NTLM-only, then Basic.</summary>
-    private static IReadOnlyList<HttpAuthScheme> SchemesToTry(AccountSettings a)
+    /// <summary>The chosen scheme first (Thunderbird uses exactly one), then the alternatives.</summary>
+    private static IReadOnlyList<HttpAuthScheme> SchemesToTry(AccountSettings a, bool havePassword)
     {
         if (a.Protocol == MailProtocol.Imap) return new[] { HttpAuthScheme.Auto };
-        if (a.AuthScheme != HttpAuthScheme.Auto) return new[] { a.AuthScheme };
-        return a.AuthMethod == AuthMethod.IntegratedWindows
-            ? new[] { HttpAuthScheme.Auto, HttpAuthScheme.Ntlm }
-            : new[] { HttpAuthScheme.Auto, HttpAuthScheme.Ntlm, HttpAuthScheme.Basic };
+        return new[] { a.AuthScheme, HttpAuthScheme.Ntlm, HttpAuthScheme.Auto, HttpAuthScheme.Negotiate, HttpAuthScheme.Basic }
+            .Distinct()
+            .Where(s => havePassword || s != HttpAuthScheme.Basic)
+            .ToList();
     }
 
-    /// <summary>Tries one combination; returns mailbox info or null on an authentication failure.</summary>
-    private async Task<(MailboxInfo? info, Exception? error)> TryConnectAsync(AccountSettings attempt)
+    private async Task<(MailboxInfo? info, Exception? error)> TryConnectAsync(AccountSettings attempt, string password)
     {
         try
         {
-            using var provider = ProviderFactory.Create(attempt, new TemporaryCredentials(EffectivePassword()));
+            using var provider = ProviderFactory.Create(attempt, new TemporaryCredentials(password));
             return (await provider.ConnectAsync(), null);
         }
         catch (Exception ex)
@@ -382,42 +383,48 @@ public partial class AccountWindow : Window
 
     private async Task<bool> TestAsync(AccountSettings a, bool showSuccess)
     {
-        Exception? firstError = null;
-        var attempts = new List<AccountSettings>();
-        var variants = a.AuthMethod == AuthMethod.Password ? LoginVariants(a).ToList() : new() { (a.UserName, a.Domain) };
-        foreach (var scheme in SchemesToTry(a))
+        var password = EffectivePassword();
+        bool havePassword = password.Length > 0;
+
+        // 1) What Thunderbird would do with these settings; 2) other login spellings and schemes;
+        // 3) on a domain PC, the logged-on Windows user (empty password), as Thunderbird does when none is stored.
+        var attempts = new List<(AccountSettings settings, string password)>();
+        var variants = havePassword ? LoginVariants(a).ToList() : new() { (a.UserName, a.Domain) };
+        foreach (var scheme in SchemesToTry(a, havePassword))
             foreach (var (user, domain) in variants)
             {
                 var attempt = a.Clone();
                 attempt.UserName = user;
                 attempt.Domain = domain;
                 attempt.AuthScheme = scheme;
-                attempts.Add(attempt);
+                attempts.Add((attempt, password));
             }
-        // Last resort on a domain computer: Windows single sign-on (what Thunderbird does with NTLM).
-        if (a.Protocol == MailProtocol.Exchange && a.AuthMethod == AuthMethod.Password && IsDomainJoined)
+        if (havePassword && a.Protocol == MailProtocol.Exchange && IsDomainJoined)
         {
-            foreach (var scheme in new[] { HttpAuthScheme.Auto, HttpAuthScheme.Ntlm })
+            foreach (var scheme in new[] { HttpAuthScheme.Ntlm, HttpAuthScheme.Auto })
             {
                 var sso = a.Clone();
-                sso.AuthMethod = AuthMethod.IntegratedWindows;
                 sso.AuthScheme = scheme;
-                attempts.Add(sso);
+                attempts.Add((sso, ""));
             }
         }
 
-        foreach (var attempt in attempts)
+        Exception? firstError = null;
+        foreach (var (attempt, pw) in attempts)
         {
-            var who = attempt.AuthMethod == AuthMethod.IntegratedWindows ? $"единый вход Windows ({WindowsAccount})" : $"«{attempt.UserName}»";
-            var (info, error) = await TryConnectAsync(attempt);
+            var who = pw.Length == 0 ? $"учётная запись Windows ({WindowsAccount})" : $"«{attempt.UserName}»";
+            var (info, error) = await TryConnectAsync(attempt, pw);
             if (info != null)
             {
                 Log.Info($"Проверка подключения успешна: {a.EmailAddress} — {who}, протокол {SchemeName(attempt.AuthScheme)}, сервер {info.ServerVersion}");
                 var changes = new List<string>();
-                if (attempt.AuthMethod != a.AuthMethod)
+                if (havePassword && pw.Length == 0)
                 {
-                    Select(AuthCombo, "IntegratedWindows");
-                    changes.Add($"способ входа — единый вход Windows ({WindowsAccount})");
+                    // The server accepted the Windows logon: do not store a password, like Thunderbird.
+                    _forgetStoredPassword = true;
+                    _passwordChanged = false;
+                    PasswordBox.Clear();
+                    changes.Add($"вход под учётной записью Windows ({WindowsAccount}) без сохранения пароля");
                 }
                 else if (!string.Equals(attempt.UserName, a.UserName, StringComparison.OrdinalIgnoreCase) || attempt.Domain != a.Domain)
                 {
@@ -425,27 +432,33 @@ public partial class AccountWindow : Window
                     DomainBox.Text = attempt.Domain;
                     changes.Add($"имя пользователя «{attempt.UserName}»");
                 }
-                if (attempt.AuthScheme != a.AuthScheme)
+                if (attempt.Protocol == MailProtocol.Exchange && attempt.AuthScheme != a.AuthScheme)
                 {
-                    Select(SchemeCombo, attempt.AuthScheme.ToString());
-                    changes.Add($"протокол проверки подлинности {SchemeName(attempt.AuthScheme)}");
+                    Select(AuthCombo, attempt.AuthScheme.ToString());
+                    changes.Add($"аутентификация {SchemeName(attempt.AuthScheme)}");
+                }
+                // Like Thunderbird, learn the schema version from the server's ServerVersionInfo header.
+                if (attempt.Protocol == MailProtocol.Exchange && ExchangeProvider.SuggestVersion(info.ServerVersion) is { } version
+                    && version != a.ServerVersion)
+                {
+                    Select(VersionCombo, version.ToString());
+                    changes.Add($"версия Exchange по ответу сервера ({info.ServerVersion})");
                 }
                 ApplyProtocolUi();
                 if (showSuccess || changes.Count > 0)
                     Dialogs.Info("Подключение установлено." +
-                                 (changes.Count > 0 ? $"\n\nПодобраны и сохранены в настройках: {string.Join("; ", changes)}." : "") +
+                                 (changes.Count > 0 ? $"\n\nПодобрано и сохранено в настройках: {string.Join("; ", changes)}." : "") +
                                  $"\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
                 return true;
             }
 
-            Log.Warn($"Вход {who}, протокол {SchemeName(attempt.AuthScheme)}: {error!.Message}");
+            Log.Warn($"Вход: {who}, аутентификация {SchemeName(attempt.AuthScheme)}: {error!.Message}");
             if (error is not MailAuthenticationException)
             {
                 firstError = error;
                 break; // network, certificate or URL problem - other credentials will not help
             }
             firstError ??= error;
-            // OAuth-only servers reject every password variant; an SMTP rejection is not a login-format problem.
             if (error.Message.Contains("OAuth") || error.Message.StartsWith("SMTP")) break;
         }
 
@@ -490,14 +503,10 @@ public partial class AccountWindow : Window
                 !Dialogs.Confirm("Подключиться к серверу не удалось. Сохранить настройки всё равно (например, для работы вне корпоративной сети)?"))
                 return;
 
-            if (a.AuthMethod == AuthMethod.Password)
-            {
-                if (_passwordChanged || _isNew) _credentials.SetPassword(a.Id, PasswordBox.Password);
-            }
-            else
-            {
-                _credentials.DeletePassword(a.Id);
-            }
+            // Empty password = Windows logon (nothing stored); otherwise keep/replace the stored password.
+            var password = EffectivePassword();
+            if (password.Length == 0) _credentials.DeletePassword(a.Id);
+            else if (_passwordChanged || _isNew) _credentials.SetPassword(a.Id, password);
             a = Collect(); // the connection test may have corrected the login
             CopyInto(a, _account);
             DialogResult = true;

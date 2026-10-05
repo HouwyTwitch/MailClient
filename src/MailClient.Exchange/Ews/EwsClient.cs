@@ -59,10 +59,11 @@ public sealed class EwsClient : IDisposable
 
     /// <summary>Sends an operation and returns the operation response element (first child of soap:Body).</summary>
     /// <param name="timeZoneId">Windows time zone id for a TimeZoneContext header (calendar operations).</param>
-    public async Task<XElement> SendAsync(XElement operation, CancellationToken ct, string? timeZoneId = null)
+    /// <param name="requestVersion">Overrides the RequestServerVersion for this call.</param>
+    public async Task<XElement> SendAsync(XElement operation, CancellationToken ct, string? timeZoneId = null, string? requestVersion = null)
     {
         var header = new XElement(Soap + "Header",
-            new XElement(T + "RequestServerVersion", new XAttribute("Version", _version)));
+            new XElement(T + "RequestServerVersion", new XAttribute("Version", requestVersion ?? _version)));
         if (!string.IsNullOrEmpty(timeZoneId))
         {
             header.Add(new XElement(T + "TimeZoneContext",

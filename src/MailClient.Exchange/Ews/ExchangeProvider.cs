@@ -37,6 +37,23 @@ public sealed class ExchangeProvider : IMailProvider
 
     public string? ServerVersion => _ews.LastServerVersion;
 
+    /// <summary>
+    /// Best EWS schema version for a server build reported in ServerVersionInfo ("15.2.1544.4" → Exchange2016),
+    /// or null when unknown. Exchange 2013 is 15.0, 2016 is 15.1, 2019 and Subscription Edition are 15.2.
+    /// </summary>
+    public static ExchangeServerVersion? SuggestVersion(string? serverVersion)
+    {
+        var parts = (serverVersion ?? "").Split('.');
+        if (parts.Length < 2 || !int.TryParse(parts[0], out var major) || !int.TryParse(parts[1], out var minor)) return null;
+        return major switch
+        {
+            < 14 => null,
+            14 => ExchangeServerVersion.Exchange2010_SP2,
+            15 when minor == 0 => ExchangeServerVersion.Exchange2013_SP1,
+            _ => ExchangeServerVersion.Exchange2016,
+        };
+    }
+
     private string? SharedMailbox => string.IsNullOrWhiteSpace(Account.SharedMailbox) ? null : Account.SharedMailbox.Trim();
 
     private static string WindowsTimeZoneId()
@@ -102,12 +119,17 @@ public sealed class ExchangeProvider : IMailProvider
 
     // ===================================================================== connect
 
+    /// <summary>
+    /// Connectivity check exactly as Thunderbird does it: GetFolder for the mailbox root (IdOnly), sent with
+    /// the conservative Exchange2007_SP1 schema version so that any Exchange server accepts it. The server's
+    /// real version comes back in the ServerVersionInfo header (see <see cref="SuggestVersion"/>).
+    /// </summary>
     public async Task<MailboxInfo> ConnectAsync(CancellationToken ct = default)
     {
         var request = new XElement(M + "GetFolder",
             new XElement(M + "FolderShape", new XElement(T + "BaseShape", "IdOnly")),
-            new XElement(M + "FolderIds", FolderIdElement("inbox")));
-        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+            new XElement(M + "FolderIds", FolderIdElement("msgfolderroot")));
+        var response = await _ews.SendAsync(request, ct, requestVersion: "Exchange2007_SP1").ConfigureAwait(false);
         EwsClient.ThrowOnError(response);
         return new MailboxInfo
         {
