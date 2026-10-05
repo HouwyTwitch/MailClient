@@ -1,7 +1,7 @@
 Windows Registry Editor Version 5.00
 
-; Пример предварительной настройки через групповые политики (GPO → Конфигурация компьютера →
-; Настройка → Параметры Windows → Реестр) или вручную. Пользователю останется ввести логин и пароль.
+; Пример предварительной настройки через реестр (GPO → Конфигурация компьютера → Настройка → Параметры Windows →
+; Реестр) или вручную. Удобнее — административные шаблоны из папки deploy\admx. Пользователю останется ввести логин и пароль.
 ; Ключ также читается из HKEY_CURRENT_USER\SOFTWARE\Policies\MailClient; при совпадении значений приоритет у HKEY_LOCAL_MACHINE.
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Policies\MailClient]
@@ -16,3 +16,5 @@ Windows Registry Editor Version 5.00
 "TrustedRootCertificateFile"="C:\\ProgramData\\Company\\root-ca.cer"
 ; 1 — запретить пользователям менять адрес сервера
 "LockServerSettings"=dword:00000001
+; 1 — запретить пользователям настраивать правила пересылки писем
+"DisableForwardingRules"=dword:00000001

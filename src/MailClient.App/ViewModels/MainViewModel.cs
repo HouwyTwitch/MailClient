@@ -89,7 +89,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private ProviderCapabilities Caps => CurrentSession?.Provider.Capabilities ?? ProviderCapabilities.All;
     public bool SupportsContacts => Caps.HasFlag(ProviderCapabilities.Contacts);
     public bool SupportsOutOfOffice => Caps.HasFlag(ProviderCapabilities.OutOfOffice);
-    public bool SupportsForwardingRules => Caps.HasFlag(ProviderCapabilities.ForwardingRules);
+    public bool SupportsForwardingRules =>
+        Caps.HasFlag(ProviderCapabilities.ForwardingRules) && !OrganizationDefaults.Current.DisableForwardingRules;
     public bool HasPreview => Preview != null;
     public bool HasAccounts => _sessions.Count > 0;
     public string FolderTitle => SelectedFolder?.Name ?? "";
@@ -1008,6 +1009,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void OpenForwardingRules()
     {
         if (CurrentSession is not { } s) return;
+        if (OrganizationDefaults.Current.DisableForwardingRules)
+        {
+            Dialogs.Info("Правила пересылки отключены администратором организации.");
+            return;
+        }
         if (!SupportsForwardingRules)
         {
             Dialogs.Info("Для этой учётной записи пересылка настраивается в веб-интерфейсе почты.");

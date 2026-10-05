@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="mailclient" namespace="MailClient.Policies.MailClient" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_MailClient" displayName="$(string.SUPPORTED_MailClient)" />
+    </definitions>
+  </supportedOn>
+  <categories>
+    <category name="MailClient" displayName="$(string.Category_MailClient)" />
+  </categories>
+  <policies>
+    <policy name="EwsUrl" class="Both" displayName="$(string.EwsUrl)" explainText="$(string.EwsUrl_Help)" key="Software\Policies\MailClient" presentation="$(presentation.EwsUrl)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <text id="EwsUrl" valueName="EwsUrl" required="true" />
+      </elements>
+    </policy>
+    <policy name="Domain" class="Both" displayName="$(string.Domain)" explainText="$(string.Domain_Help)" key="Software\Policies\MailClient" presentation="$(presentation.Domain)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <text id="Domain" valueName="Domain" required="true" />
+      </elements>
+    </policy>
+    <policy name="EmailDomain" class="Both" displayName="$(string.EmailDomain)" explainText="$(string.EmailDomain_Help)" key="Software\Policies\MailClient" presentation="$(presentation.EmailDomain)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <text id="EmailDomain" valueName="EmailDomain" required="true" />
+      </elements>
+    </policy>
+    <policy name="AuthMethod" class="Both" displayName="$(string.AuthMethod)" explainText="$(string.AuthMethod_Help)" key="Software\Policies\MailClient" presentation="$(presentation.AuthMethod)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <enum id="AuthMethod" valueName="AuthMethod" required="true">
+          <item displayName="$(string.AuthMethod_Password)"><value><string>Password</string></value></item>
+          <item displayName="$(string.AuthMethod_IntegratedWindows)"><value><string>IntegratedWindows</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="ServerVersion" class="Both" displayName="$(string.ServerVersion)" explainText="$(string.ServerVersion_Help)" key="Software\Policies\MailClient" presentation="$(presentation.ServerVersion)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <enum id="ServerVersion" valueName="ServerVersion" required="true">
+          <item displayName="$(string.ServerVersion_Exchange2016)"><value><string>Exchange2016</string></value></item>
+          <item displayName="$(string.ServerVersion_Exchange2013_SP1)"><value><string>Exchange2013_SP1</string></value></item>
+          <item displayName="$(string.ServerVersion_Exchange2013)"><value><string>Exchange2013</string></value></item>
+          <item displayName="$(string.ServerVersion_Exchange2010_SP2)"><value><string>Exchange2010_SP2</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="TrustedRootCertificateFile" class="Both" displayName="$(string.TrustedRootCertificateFile)" explainText="$(string.TrustedRootCertificateFile_Help)" key="Software\Policies\MailClient" presentation="$(presentation.TrustedRootCertificateFile)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <text id="TrustedRootCertificateFile" valueName="TrustedRootCertificateFile" required="true" />
+      </elements>
+    </policy>
+    <policy name="LockServerSettings" class="Both" displayName="$(string.LockServerSettings)" explainText="$(string.LockServerSettings_Help)" key="Software\Policies\MailClient" valueName="LockServerSettings">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="Protocol" class="Both" displayName="$(string.Protocol)" explainText="$(string.Protocol_Help)" key="Software\Policies\MailClient" presentation="$(presentation.Protocol)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <enum id="Protocol" valueName="Protocol" required="true">
+          <item displayName="$(string.Protocol_Exchange)"><value><string>Exchange</string></value></item>
+          <item displayName="$(string.Protocol_Imap)"><value><string>Imap</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="ImapHost" class="Both" displayName="$(string.ImapHost)" explainText="$(string.ImapHost_Help)" key="Software\Policies\MailClient" presentation="$(presentation.ImapHost)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <text id="ImapHost" valueName="ImapHost" required="true" />
+      </elements>
+    </policy>
+    <policy name="ImapPort" class="Both" displayName="$(string.ImapPort)" explainText="$(string.ImapPort_Help)" key="Software\Policies\MailClient" presentation="$(presentation.ImapPort)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <decimal id="ImapPort" valueName="ImapPort" required="true" minValue="1" maxValue="65535" />
+      </elements>
+    </policy>
+    <policy name="SmtpHost" class="Both" displayName="$(string.SmtpHost)" explainText="$(string.SmtpHost_Help)" key="Software\Policies\MailClient" presentation="$(presentation.SmtpHost)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <text id="SmtpHost" valueName="SmtpHost" required="true" />
+      </elements>
+    </policy>
+    <policy name="SmtpPort" class="Both" displayName="$(string.SmtpPort)" explainText="$(string.SmtpPort_Help)" key="Software\Policies\MailClient" presentation="$(presentation.SmtpPort)">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <elements>
+        <decimal id="SmtpPort" valueName="SmtpPort" required="true" minValue="1" maxValue="65535" />
+      </elements>
+    </policy>
+    <policy name="DisableForwardingRules" class="Both" displayName="$(string.DisableForwardingRules)" explainText="$(string.DisableForwardingRules_Help)" key="Software\Policies\MailClient" valueName="DisableForwardingRules">
+      <parentCategory ref="MailClient" />
+      <supportedOn ref="SUPPORTED_MailClient" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+  </policies>
+</policyDefinitions>

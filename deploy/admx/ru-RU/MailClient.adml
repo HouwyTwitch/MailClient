@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>Корпоративная почта</displayName>
+  <description>Административные шаблоны почтового клиента «Корпоративная почта».</description>
+  <resources>
+    <stringTable>
+      <string id="Category_MailClient">Корпоративная почта</string>
+      <string id="SUPPORTED_MailClient">Корпоративная почта 0.1 и новее</string>
+      <string id="EwsUrl">Адрес сервера Exchange (EWS)</string>
+      <string id="EwsUrl_Help">Адрес веб-служб Exchange, например https://mail.company.ru/EWS/Exchange.asmx. Подставляется при добавлении учётной записи, поэтому пользователю остаётся ввести логин и пароль.</string>
+      <string id="Domain">Домен Windows для входа</string>
+      <string id="Domain_Help">Домен, который подставляется к имени пользователя при входе в Exchange (например, CORP).</string>
+      <string id="EmailDomain">Почтовый домен</string>
+      <string id="EmailDomain_Help">Позволяет ввести только имя (ivanov): адрес дополнится до ivanov@домен.</string>
+      <string id="AuthMethod">Способ входа в Exchange</string>
+      <string id="AuthMethod_Help">Password — по логину и паролю; IntegratedWindows — единый вход под учётной записью Windows (компьютеры в домене).</string>
+      <string id="AuthMethod_Password">По логину и паролю</string>
+      <string id="AuthMethod_IntegratedWindows">Единый вход Windows</string>
+      <string id="ServerVersion">Версия Exchange Server</string>
+      <string id="ServerVersion_Help">Версия протокола EWS. Exchange 2016 подходит для 2016, 2019 и Subscription Edition.</string>
+      <string id="ServerVersion_Exchange2016">Exchange 2016 / 2019 / Subscription Edition</string>
+      <string id="ServerVersion_Exchange2013_SP1">Exchange 2013 SP1</string>
+      <string id="ServerVersion_Exchange2013">Exchange 2013</string>
+      <string id="ServerVersion_Exchange2010_SP2">Exchange 2010 SP2</string>
+      <string id="TrustedRootCertificateFile">Корневой сертификат организации</string>
+      <string id="TrustedRootCertificateFile_Help">Путь к файлу корневого сертификата внутреннего УЦ или Russian Trusted Root CA (.cer, .crt, .pem). Сертификат применяется только к почтовому серверу и не устанавливается в хранилище Windows.</string>
+      <string id="LockServerSettings">Запретить изменение адреса сервера</string>
+      <string id="LockServerSettings_Help">Если политика включена, пользователи не могут изменить адрес сервера Exchange, заданный политикой «Адрес сервера Exchange (EWS)».</string>
+      <string id="Protocol">Тип учётной записи по умолчанию</string>
+      <string id="Protocol_Help">Exchange (EWS) или IMAP/SMTP.</string>
+      <string id="Protocol_Exchange">Microsoft Exchange</string>
+      <string id="Protocol_Imap">IMAP / SMTP</string>
+      <string id="ImapHost">Сервер IMAP</string>
+      <string id="ImapHost_Help">Адрес сервера IMAP для учётных записей IMAP.</string>
+      <string id="ImapPort">Порт IMAP</string>
+      <string id="ImapPort_Help">993 — SSL/TLS, другие порты — STARTTLS.</string>
+      <string id="SmtpHost">Сервер SMTP</string>
+      <string id="SmtpHost_Help">Адрес сервера исходящей почты для учётных записей IMAP.</string>
+      <string id="SmtpPort">Порт SMTP</string>
+      <string id="SmtpPort_Help">465 — SSL/TLS, другие порты — STARTTLS.</string>
+      <string id="DisableForwardingRules">Запретить правила пересылки</string>
+      <string id="DisableForwardingRules_Help">Если политика включена, окно «Правила пересылки» недоступно и пользователи не могут настраивать в программе пересылку и переадресацию писем. Чтобы запрет действовал и в других программах (Outlook, OWA), ограничьте автоматическую пересылку на сервере Exchange (удалённые домены, правила транспорта).</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="EwsUrl"><textBox refId="EwsUrl"><label>Адрес EWS:</label></textBox></presentation>
+      <presentation id="Domain"><textBox refId="Domain"><label>Домен:</label></textBox></presentation>
+      <presentation id="EmailDomain"><textBox refId="EmailDomain"><label>Почтовый домен:</label></textBox></presentation>
+      <presentation id="AuthMethod"><dropdownList refId="AuthMethod" noSort="true">Способ входа:</dropdownList></presentation>
+      <presentation id="ServerVersion"><dropdownList refId="ServerVersion" noSort="true">Версия:</dropdownList></presentation>
+      <presentation id="TrustedRootCertificateFile"><textBox refId="TrustedRootCertificateFile"><label>Путь к файлу:</label></textBox></presentation>
+      <presentation id="Protocol"><dropdownList refId="Protocol" noSort="true">Тип:</dropdownList></presentation>
+      <presentation id="ImapHost"><textBox refId="ImapHost"><label>Сервер IMAP:</label></textBox></presentation>
+      <presentation id="ImapPort"><decimalTextBox refId="ImapPort" defaultValue="993">Порт IMAP:</decimalTextBox></presentation>
+      <presentation id="SmtpHost"><textBox refId="SmtpHost"><label>Сервер SMTP:</label></textBox></presentation>
+      <presentation id="SmtpPort"><decimalTextBox refId="SmtpPort" defaultValue="587">Порт SMTP:</decimalTextBox></presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

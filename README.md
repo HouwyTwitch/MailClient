@@ -202,7 +202,12 @@ windows-1251, KOI8-R, CP866 (DOS), ISO-8859-5, Mac. Для Exchange тема и 
 2. Установка вручную: запустите установщик. Тихая установка для всех пользователей:
    `MailClient-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /ALLUSERS`.
 3. Предварительная настройка (необязательно). Есть два способа:
-   - групповые политики: ключ `HKLM\SOFTWARE\Policies\MailClient`, пример в
+   - групповые политики. Административные шаблоны лежат в [`deploy/admx`](deploy/admx): скопируйте
+     `MailClient.admx` и папки `ru-RU`/`en-US` в центральное хранилище политик
+     (`\\домен\SYSVOL\домен\Policies\PolicyDefinitions`) или в `C:\Windows\PolicyDefinitions`.
+     Параметры появятся в разделе «Административные шаблоны → Корпоративная почта» как для компьютера,
+     так и для пользователя (при совпадении приоритет у компьютера). Без шаблонов можно записать значения
+     в ключ `HKLM\SOFTWARE\Policies\MailClient` напрямую, пример в
      [`deploy/MailClient-policy.example.reg`](deploy/MailClient-policy.example.reg);
    - файл `organization.json` рядом с `MailClient.exe`, пример в
      [`deploy/organization.example.json`](deploy/organization.example.json).
@@ -219,6 +224,12 @@ windows-1251, KOI8-R, CP866 (DOS), ISO-8859-5, Mac. Для Exchange тема и 
    | `LockServerSettings` | `1` — запретить пользователям менять адрес сервера |
    | `Protocol` | `Exchange` (по умолчанию) или `Imap` |
    | `ImapHost`, `ImapPort`, `SmtpHost`, `SmtpPort` | Серверы для учётных записей IMAP |
+   | `DisableForwardingRules` | `1` — запретить настройку правил пересылки в программе. Запрет на сервере (удалённые домены, правила транспорта Exchange) действует и для других программ |
+
+   Политики читаются при запуске программы.
+4. Прокси: программа использует системные настройки прокси Windows (включая сценарии PAC/WPAD) и входит
+   на прокси под учётной записью пользователя Windows. Если прокси всё равно отвечает «407», добавьте адрес
+   почтового сервера в исключения прокси.
 
 ## Сборка
 
@@ -231,7 +242,17 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1 -Version 1.0.0
 ```
 
 Результат: `publish\win-x64\MailClient.exe` и `publish\MailClient-Setup-1.0.0.exe`.
-При каждом push GitHub Actions собирает то же самое на Windows (`.github/workflows/build.yml`).
+При каждом push GitHub Actions собирает то же самое на Windows (`.github/workflows/build.yml`)
+и прикладывает к сборке файл контрольных сумм `SHA256SUMS.txt`.
+
+Выпуск версии: поставьте тег `vX.Y.Z` (например, `git tag v1.0.0 && git push origin v1.0.0`). CI соберёт
+программу с этой версией (номер сборки CI добавляется в версию файла) и опубликует GitHub Release
+с установщиком и контрольными суммами. Номер версии и коммит видны в окне «О программе» и в отчёте для техподдержки.
+
+Подпись кода: добавьте в секреты репозитория `SIGNING_CERT_PFX` (сертификат подписи кода в формате PFX,
+закодированный в base64) и `SIGNING_CERT_PASSWORD`. Тогда CI подпишет `MailClient.exe`, установщик и
+деинсталлятор с меткой времени (сервер меток можно сменить переменной репозитория `SIGNING_TIMESTAMP_URL`).
+Подписанная программа не вызывает предупреждений SmartScreen и проходит политики AppLocker/WDAC по издателю.
 
 Тесты: `dotnet test --project tests/MailClient.Tests`. Дополнительные проверки включаются переменными окружения:
 `MAILCLIENT_IMAP_TEST=1` — сквозные тесты с настоящим IMAP/SMTP-сервером (`tests/imap-test-env.md`),
