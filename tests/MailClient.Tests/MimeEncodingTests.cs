@@ -88,4 +88,33 @@ public class MimeEncodingTests
             .Concat(Encoding.ASCII.GetBytes("\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nok")).ToArray();
         Assert.Equal("Счёт на оплату", MimeMail.Parse(bytes).Subject);
     }
+
+    [Theory]
+    [InlineData(20866, "")]                                  // KOI8-R, no label
+    [InlineData(20866, "; charset=windows-1251")]            // KOI8-R mislabelled
+    [InlineData(866, "; charset=us-ascii")]                  // DOS code page from old systems
+    [InlineData(1251, "; charset=iso-8859-1")]               // windows-1251 labelled Latin-1
+    [InlineData(28595, "")]
+    public void Raw_russian_headers_and_body_in_any_charset_are_detected(int codePage, string label)
+    {
+        var enc = Encoding.GetEncoding(codePage);
+        var bytes = Encoding.ASCII.GetBytes("From: ").Concat(enc.GetBytes("Иванов Иван")).Concat(Encoding.ASCII.GetBytes(" <a@t.ru>\r\nSubject: "))
+            .Concat(enc.GetBytes("Счёт на оплату")).Concat(Encoding.ASCII.GetBytes($"\r\nContent-Type: text/plain{label}\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"))
+            .Concat(enc.GetBytes("Добрый день! Высылаем документы по договору.")).ToArray();
+        var m = new MailMessage();
+        MimeMail.Fill(m, MimeMail.Parse(bytes), "x");
+        Assert.Equal("Иванов Иван", m.From!.Name);
+        Assert.Equal("Счёт на оплату", m.Subject);
+        Assert.Equal("Добрый день! Высылаем документы по договору.", m.Body.Trim());
+    }
+
+    [Fact]
+    public void Genuine_latin1_text_is_not_turned_into_cyrillic()
+    {
+        var bytes = Encoding.ASCII.GetBytes("Subject: x\r\nContent-Type: text/plain; charset=iso-8859-1\r\nContent-Transfer-Encoding: 8bit\r\n\r\n")
+            .Concat(Encoding.Latin1.GetBytes("Grüße aus München, schöne Größe")).ToArray();
+        var m = new MailMessage();
+        MimeMail.Fill(m, MimeMail.Parse(bytes), "x");
+        Assert.Equal("Grüße aus München, schöne Größe", m.Body.Trim());
+    }
 }

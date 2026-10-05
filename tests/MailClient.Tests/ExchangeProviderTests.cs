@@ -526,9 +526,11 @@ public class ExchangeProviderTests
         return ms.ToArray();
     }
 
+    /// <summary>A GetItem answer as Exchange gives it: MIME plus the subject Exchange decoded from it.</summary>
     private static string MimeItem(string id, byte[] mime, bool read = false) =>
         $"<t:Message><t:MimeContent CharacterSet=\"UTF-8\">{Convert.ToBase64String(mime)}</t:MimeContent><t:ItemId Id=\"{id}\" ChangeKey=\"CK\"/>" +
-        $"<t:ItemClass>IPM.Note</t:ItemClass><t:Subject>s</t:Subject><t:IsRead>{(read ? "true" : "false")}</t:IsRead></t:Message>";
+        $"<t:ItemClass>IPM.Note</t:ItemClass><t:Subject>{System.Security.SecurityElement.Escape(MimeKit.MimeMessage.Load(new MemoryStream(mime)).Subject)}</t:Subject>" +
+        $"<t:IsRead>{(read ? "true" : "false")}</t:IsRead></t:Message>";
 
     private static MimeKit.MimeMessage SentMime(XElement createItem) =>
         MimeKit.MimeMessage.Load(new MemoryStream(Convert.FromBase64String(createItem.Descendants(T + "MimeContent").Single().Value)));
@@ -566,6 +568,38 @@ public class ExchangeProviderTests
         Assert.Equal(before, fake.Requests.Count);
         Assert.Equal("данные", System.Text.Encoding.UTF8.GetString(content[0].Content));
         Assert.Equal(new byte[] { 137, 80, 78, 71 }, content[1].Content);
+    }
+
+    [Fact]
+    public async Task Misdecoded_mime_falls_back_to_exchange_subject_sender_and_body()
+    {
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        var cp1251 = System.Text.Encoding.GetEncoding(1251);
+        // A broken mailer: windows-1251 bytes labelled iso-8859-1 inside an encoded word, body likewise.
+        var subject = "=?iso-8859-1?B?" + Convert.ToBase64String(cp1251.GetBytes("Счёт на оплату")) + "?=";
+        var mime = System.Text.Encoding.ASCII.GetBytes(
+                $"From: =?iso-8859-1?B?{Convert.ToBase64String(cp1251.GetBytes("Бухгалтерия"))}?= <buh@contoso.ru>\r\nTo: ivanov@contoso.ru\r\n" +
+                $"Subject: {subject}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=iso-8859-1\r\nContent-Transfer-Encoding: base64\r\n\r\n" +
+                Convert.ToBase64String(cp1251.GetBytes("Счёт во вложении")) + "\r\n");
+        var fake = new FakeEws().ServeItems(new Dictionary<string, string>
+        {
+            ["M1"] = $"""
+                <t:Message><t:MimeContent CharacterSet="UTF-8">{Convert.ToBase64String(mime)}</t:MimeContent><t:ItemId Id="M1"/>
+                  <t:Subject>Счёт на оплату</t:Subject><t:Body BodyType="HTML">&lt;p&gt;Счёт во вложении&lt;/p&gt;</t:Body>
+                  <t:Preview>Счёт во вложении</t:Preview>
+                  <t:From><t:Mailbox><t:Name>Бухгалтерия</t:Name><t:EmailAddress>buh@contoso.ru</t:EmailAddress></t:Mailbox></t:From>
+                  <t:IsRead>true</t:IsRead></t:Message>
+                """,
+        });
+        using var p = fake.CreateProvider();
+
+        var m = await p.GetMessageAsync("M1");
+
+        Assert.Equal("Счёт на оплату", m.Subject);
+        Assert.Equal("Бухгалтерия", m.From!.Name);
+        Assert.Contains("Счёт во вложении", m.Body);
+        Assert.Equal("HTML", fake.Last("GetItem").Descendants(T + "BodyType").Single().Value);
+        Assert.Empty(fake.ValidationErrors);
     }
 
     [Fact]

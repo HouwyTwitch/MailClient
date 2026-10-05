@@ -40,21 +40,51 @@ public static partial class MimeMail
     }
 
     /// <summary>
-    /// Fallback for raw 8-bit headers without RFC 2047 encoding: Thunderbird uses the locale's default
-    /// charset (mailnews.view_default_charset), which is windows-1251 for Russian. UTF-8 is still tried first.
+    /// Raw 8-bit headers (no RFC 2047 encoding) are decoded as UTF-8 when valid, otherwise in the Russian charset
+    /// detected from the header bytes (windows-1251, KOI8-R, CP866…), like Thunderbird's charset detector.
     /// </summary>
-    private static readonly ParserOptions Parser = CreateParser();
+    private static readonly ParserOptions Parser = CreateParser(1251);
 
-    private static ParserOptions CreateParser()
+    private static ParserOptions CreateParser(int codePage)
     {
         // Field initializers run before a static constructor body, so the code page provider is registered here.
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var o = ParserOptions.Default.Clone();
-        o.CharsetEncoding = Encoding.GetEncoding(1251);
+        o.CharsetEncoding = Encoding.GetEncoding(codePage);
         return o;
     }
 
-    public static MimeMessage Parse(byte[] mime) => MimeMessage.Load(Parser, new MemoryStream(mime));
+    public static MimeMessage Parse(byte[] mime) => MimeMessage.Load(OptionsFor(mime), new MemoryStream(mime));
+
+    private static ParserOptions OptionsFor(byte[] mime)
+    {
+        var raw = Raw8BitHeaderBytes(mime);
+        if (raw.Length == 0 || IsValidUtf8(raw)) return Parser;
+        var cp = CyrillicCharset.Detect(raw).CodePage;
+        return cp == 1251 ? Parser : CreateParser(cp);
+    }
+
+    /// <summary>The non-ASCII byte runs of the top-level header block, separated by spaces.</summary>
+    private static byte[] Raw8BitHeaderBytes(byte[] mime)
+    {
+        var result = new List<byte>();
+        int end = mime.Length;
+        for (int i = 0; i + 1 < mime.Length; i++)
+        {
+            if (mime[i] == '\n' && (mime[i + 1] == '\n' || (mime[i + 1] == '\r' && i + 2 < mime.Length && mime[i + 2] == '\n')))
+            {
+                end = i;
+                break;
+            }
+        }
+        bool inRun = false;
+        for (int i = 0; i < end; i++)
+        {
+            if (mime[i] >= 0x80) { result.Add(mime[i]); inRun = true; }
+            else if (inRun) { result.Add((byte)' '); inRun = false; }
+        }
+        return result.ToArray();
+    }
 
     /// <summary>HTML body with Thunderbird-like charset detection (see <see cref="DecodeText"/>).</summary>
     public static string? HtmlBodyOf(MimeMessage message) =>
@@ -70,7 +100,8 @@ public static partial class MimeMail
     /// <summary>
     /// Decodes a text part. A declared charset is honoured unless the bytes contradict it (8-bit data labelled
     /// us-ascii, invalid UTF-8). Undeclared or contradicted parts are decoded as UTF-8 when valid, then by the
-    /// HTML &lt;meta&gt; charset, then as windows-1251 — the charset of most Russian mail without a label.
+    /// HTML &lt;meta&gt; charset, then in the detected Russian charset. A single-byte label that the bytes clearly
+    /// contradict (KOI8-R text labelled windows-1251 or iso-8859-1) is corrected by the detector.
     /// </summary>
     public static string DecodeText(TextPart part)
     {
@@ -84,7 +115,8 @@ public static partial class MimeMail
         {
             var isAscii = enc.CodePage is 20127;
             var isUtf8 = enc.CodePage is 65001;
-            if (!has8Bit || (!isAscii && !isUtf8) || (isUtf8 && IsValidUtf8(bytes))) return enc.GetString(bytes);
+            if (!has8Bit || (isUtf8 && IsValidUtf8(bytes))) return enc.GetString(bytes);
+            if (!isAscii && !isUtf8) return CyrillicCharset.Correct(bytes, enc).GetString(bytes);
         }
         if (!has8Bit || IsValidUtf8(bytes)) return Encoding.UTF8.GetString(bytes);
         if (part.IsHtml)
@@ -92,9 +124,9 @@ public static partial class MimeMail
             var head = Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, 4096));
             var meta = MetaCharsetRegex().Match(head);
             if (meta.Success && TryGetEncoding(meta.Groups["cs"].Value) is { CodePage: not 65001 and not 20127 } metaEnc)
-                return metaEnc.GetString(bytes);
+                return CyrillicCharset.Correct(bytes, metaEnc).GetString(bytes);
         }
-        return Encoding.GetEncoding(1251).GetString(bytes);
+        return CyrillicCharset.Detect(bytes).GetString(bytes);
     }
 
     private static Encoding? TryGetEncoding(string charset)

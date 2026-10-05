@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using MailClient.Core.Mime;
+using MailClient.Core.Rendering;
 using MailClient.Core.Models;
 using MimeKit;
 using MailClient.Core.Services;
@@ -564,8 +565,33 @@ public sealed class ExchangeProvider : IMailProvider
             throw new MailServiceException("Сервер не вернул содержимое письма в формате MIME.");
         var mime = Convert.FromBase64String(mimeText);
         RememberMime(itemId, mime);
+        var ewsSubject = message.Subject;
+        var ewsFrom = message.From;
         MimeMail.Fill(message, MimeMail.Parse(mime), itemId);
         message.Id = itemId;
+
+        // Exchange has already decoded subject and sender (with its own charset detection) — the list shows these
+        // values, so the reading pane must too. If the MIME copy disagrees with them, its charset labels are wrong
+        // beyond what local detection could repair: the body is then taken as Exchange renders it.
+        bool mimeMisdecoded = ewsSubject.Length > 0 && ContainsCyrillic(ewsSubject) && Squash(message.Subject) != Squash(ewsSubject);
+        if (ewsSubject.Length > 0) message.Subject = ewsSubject;
+        if (ewsFrom != null && ewsFrom.Address.Length > 0) message.From = ewsFrom;
+        if (mimeMisdecoded || !PreviewMatchesBody(message))
+        {
+            try
+            {
+                if (await GetEwsBodyAsync(itemId, ct).ConfigureAwait(false) is { Length: > 0 } html)
+                {
+                    Core.Diagnostics.MailLog.Warn?.Invoke("Кодировка MIME письма не совпадает с данными Exchange — текст взят из Exchange");
+                    message.Body = html;
+                    message.BodyIsHtml = true;
+                }
+            }
+            catch (MailServiceException ex)
+            {
+                Core.Diagnostics.MailLog.Warn?.Invoke($"Текст письма из Exchange не получен: {ex.Message}");
+            }
+        }
 
         // Meeting requests: the calendar data (time, place) is read from the server, not from the MIME body.
         if (message.IsMeetingRequest || message.IsMeetingCancellation)
@@ -589,6 +615,37 @@ public sealed class ExchangeProvider : IMailProvider
             }
         }
         return message;
+    }
+
+    private static bool ContainsCyrillic(string s) => s.Any(c => c is >= '\u0400' and <= '\u04FF');
+
+    private static string Squash(string s) => string.Concat(s.Where(char.IsLetterOrDigit)).ToLowerInvariant();
+
+    /// <summary>
+    /// The server's Preview (Exchange 2013+) is decoded by Exchange; when none of its Russian words occur in the
+    /// locally decoded body, the local decoding is wrong.
+    /// </summary>
+    private static bool PreviewMatchesBody(MailMessage message)
+    {
+        var words = System.Text.RegularExpressions.Regex.Matches(message.Preview ?? "", @"[\u0400-\u04FF]{4,}")
+            .Select(m => m.Value.ToLowerInvariant()).Distinct().Take(6).ToList();
+        if (words.Count < 2) return true;
+        var text = (message.BodyIsHtml ? MessageHtmlBuilder.HtmlToText(message.Body) : message.Body).ToLowerInvariant();
+        return words.Any(text.Contains);
+    }
+
+    /// <summary>The body as HTML converted by Exchange (GetItem item:Body, BodyType HTML).</summary>
+    private async Task<string?> GetEwsBodyAsync(string itemId, CancellationToken ct)
+    {
+        var request = new XElement(M + "GetItem",
+            new XElement(M + "ItemShape",
+                new XElement(T + "BaseShape", "IdOnly"),
+                new XElement(T + "BodyType", "HTML"),
+                new XElement(T + "AdditionalProperties", FieldUri("item:Body"))),
+            new XElement(M + "ItemIds", ItemId(itemId)));
+        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+        EwsClient.ThrowOnError(response);
+        return response.Descendants(T + "Body").FirstOrDefault()?.Value;
     }
 
     private async Task<string> GetChangeKeyAsync(string itemId, CancellationToken ct)
