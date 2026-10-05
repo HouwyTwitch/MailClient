@@ -59,11 +59,11 @@ public static class CertificateTrust
             int stop = pem.IndexOf(end, pos, StringComparison.Ordinal);
             if (stop < 0) break;
             var b64 = pem[(pos + begin.Length)..stop];
-            result.Add(new X509Certificate2(Convert.FromBase64String(new string(b64.Where(c => !char.IsWhiteSpace(c)).ToArray()))));
+            result.Add(X509CertificateLoader.LoadCertificate(Convert.FromBase64String(new string(b64.Where(c => !char.IsWhiteSpace(c)).ToArray()))));
             pos = stop + end.Length;
         }
         if (result.Count == 0)
-            result.Add(new X509Certificate2(Convert.FromBase64String(new string(pem.Where(c => !char.IsWhiteSpace(c)).ToArray()))));
+            result.Add(X509CertificateLoader.LoadCertificate(Convert.FromBase64String(new string(pem.Where(c => !char.IsWhiteSpace(c)).ToArray()))));
         return result;
     }
 

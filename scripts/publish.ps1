@@ -14,7 +14,7 @@ Set-Location $root
 $out = Join-Path $root "publish\$Runtime"
 
 Write-Host "== Тесты" -ForegroundColor Cyan
-dotnet test tests\MailClient.Tests -c Release
+dotnet test --project tests\MailClient.Tests -c Release
 if ($LASTEXITCODE -ne 0) { throw "Тесты не пройдены" }
 
 Write-Host "== Публикация в $out" -ForegroundColor Cyan

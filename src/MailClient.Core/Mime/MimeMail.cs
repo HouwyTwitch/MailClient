@@ -47,8 +47,8 @@ public static partial class MimeMail
 
     private static ParserOptions CreateParser(int codePage)
     {
-        // Field initializers run before a static constructor body, so the code page provider is registered here.
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        // Field initializers run before a static constructor body, so the code pages are registered here.
+        CodePages.EnsureRegistered();
         var o = ParserOptions.Default.Clone();
         o.CharsetEncoding = Encoding.GetEncoding(codePage);
         return o;
@@ -214,12 +214,20 @@ public static partial class MimeMail
                 ContentId = (part.ContentId ?? "").Trim('<', '>'),
                 IsInline = !part.IsAttachment && part.ContentId != null,
                 IsItemAttachment = part is MessagePart,
-                Size = part is MimePart { Content: { } c } && c.Stream.CanSeek ? c.Stream.Length * 3 / 4 : 0,
+                Size = part is MimePart { Content.Stream: { CanSeek: true } stream } ? stream.Length * 3 / 4 : 0,
             });
             index++;
         }
         m.HasAttachments = m.Attachments.Any(a => !a.IsInline);
     }
+
+    /// <summary>Decoded content of an attachment: the embedded message as .eml, or the file's bytes.</summary>
+    private static Task WritePartAsync(MimeEntity part, Stream target, CancellationToken ct) => part switch
+    {
+        MessagePart { Message: { } message } => message.WriteToAsync(target, ct),
+        MimePart { Content: { } content } => content.DecodeToAsync(target, ct),
+        _ => Task.CompletedTask,
+    };
 
     public static bool IsPartId(string attachmentId) => attachmentId.Contains(PartSeparator);
 
@@ -237,8 +245,7 @@ public static partial class MimeMail
         if (index < 0 || index >= parts.Count) throw new MailServiceException("Вложение не найдено.", "ErrorAttachmentNotFound");
         var part = parts[index];
         using var ms = new MemoryStream();
-        if (part is MessagePart mp) await mp.Message.WriteToAsync(ms, ct).ConfigureAwait(false);
-        else if (part is MimePart file) await file.Content.DecodeToAsync(ms, ct).ConfigureAwait(false);
+        await WritePartAsync(part, ms, ct).ConfigureAwait(false);
         return new AttachmentContent
         {
             Info = new AttachmentInfo
@@ -302,7 +309,7 @@ public static partial class MimeMail
             foreach (var part in original.BodyParts.OfType<MimePart>().Where(p => p.ContentId != null && !p.IsAttachment))
             {
                 using var ms = new MemoryStream();
-                await part.Content.DecodeToAsync(ms, ct).ConfigureAwait(false);
+                await WritePartAsync(part, ms, ct).ConfigureAwait(false);
                 var res = builder.LinkedResources.Add(part.FileName ?? "image", ms.ToArray(), part.ContentType);
                 res.ContentId = part.ContentId;
             }
@@ -312,8 +319,7 @@ public static partial class MimeMail
                 foreach (var part in original.Attachments)
                 {
                     using var ms = new MemoryStream();
-                    if (part is MessagePart mp) await mp.Message.WriteToAsync(ms, ct).ConfigureAwait(false);
-                    else if (part is MimePart file) await file.Content.DecodeToAsync(ms, ct).ConfigureAwait(false);
+                    await WritePartAsync(part, ms, ct).ConfigureAwait(false);
                     var name = (part as MimePart)?.FileName ?? "message.eml";
                     builder.Attachments.Add(name, ms.ToArray(), part.ContentType);
                 }

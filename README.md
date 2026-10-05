@@ -207,7 +207,8 @@ windows-1251, KOI8-R, CP866 (DOS), ISO-8859-5, Mac. Для Exchange тема и 
 
 ## Сборка
 
-Нужен .NET 8 SDK, для установщика — Inno Setup 6.
+Нужен .NET 10 SDK (версия задана в `global.json`), для установщика — Inno Setup 6.
+Версии всех зависимостей собраны в одном файле — `Directory.Packages.props`.
 
 ```powershell
 # тесты + MailClient.exe + установщик (если установлен Inno Setup)
@@ -227,7 +228,7 @@ src/
                         автоответы, адресная книга; Autodiscover; NTLM/Kerberos/SSO; доверие к УЦ
   MailClient.Imap       IMAP + SMTP на основе MailKit: инкрементальная синхронизация (UID/CONDSTORE),
                         ответы с цитатой и заголовками In-Reply-To, имена вложений по RFC 2047
-  MailClient.App        приложение WPF (.NET 8, MVVM): интерфейс, WebView2, хранение секретов (DPAPI),
+  MailClient.App        приложение WPF (.NET 10, MVVM): интерфейс, WebView2, хранение секретов (DPAPI),
                         значок в трее, политики организации
 tests/
   MailClient.Tests      87 тестов: каждый запрос к EWS проверяется по официальной схеме Microsoft

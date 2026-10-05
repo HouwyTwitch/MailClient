@@ -27,7 +27,7 @@ public class ConcurrencyTests : IDisposable
                 {
                     Id = $"{batch}-{i}", FolderId = "F", Subject = $"Письмо {i}", DateReceived = DateTimeOffset.UtcNow,
                 }));
-        });
+        }, TestContext.Current.CancellationToken);
         var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
         {
             for (int i = 0; i < 100; i++)

@@ -69,7 +69,7 @@ public class ThunderbirdCompatTests
         var fake = new FakeEws().On("GetFolder", Response("GetFolder", Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"ROOT\"/></t:Folder></m:Folders>")));
         using var p = fake.CreateProvider();
 
-        var info = await p.ConnectAsync();
+        var info = await p.ConnectAsync(TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var req = fake.Last("GetFolder");

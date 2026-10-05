@@ -80,7 +80,7 @@ public class AuthTests
     {
         var router = new Router();
         var client = new AutodiscoverClient(() => new HttpClient(router), new HttpClient(router));
-        var result = await client.DiscoverAsync("ivanov@company.ru");
+        var result = await client.DiscoverAsync("ivanov@company.ru", TestContext.Current.CancellationToken);
         Assert.Equal("https://mail.company.ru/EWS/Exchange.asmx", result.EwsUrl);
         Assert.Equal("Иванов Иван", result.DisplayName);
         Assert.Equal(ExchangeServerVersion.Exchange2016, AutodiscoverClient.SuggestVersion(result.ServerVersionHex));
@@ -91,7 +91,7 @@ public class AuthTests
     {
         var only401 = new OnlyUnauthorized();
         var client = new AutodiscoverClient(() => new HttpClient(only401), new HttpClient(only401));
-        var ex = await Assert.ThrowsAsync<MailAuthenticationException>(() => client.DiscoverAsync("ivanov@company.ru"));
+        var ex = await Assert.ThrowsAsync<MailAuthenticationException>(() => client.DiscoverAsync("ivanov@company.ru", TestContext.Current.CancellationToken));
         Assert.Contains("NTLM", ex.Message);
     }
 
@@ -100,7 +100,7 @@ public class AuthTests
     {
         var handler = new RejectsLogin();
         var client = new AutodiscoverClient(() => new HttpClient(handler), new HttpClient(handler));
-        await Assert.ThrowsAsync<MailAuthenticationException>(() => client.DiscoverAsync("ivanov@company.ru"));
+        await Assert.ThrowsAsync<MailAuthenticationException>(() => client.DiscoverAsync("ivanov@company.ru", TestContext.Current.CancellationToken));
         Assert.Equal(1, handler.Posts);
     }
 

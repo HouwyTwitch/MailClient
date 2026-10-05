@@ -42,7 +42,7 @@ public class ExchangeProviderTests
             .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
         using var p = fake.CreateProvider();
 
-        var page = await p.GetMessagesAsync("inbox", 0, 50);
+        var page = await p.GetMessagesAsync("inbox", 0, 50, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var find = fake.Last("FindItem");
@@ -82,7 +82,7 @@ public class ExchangeProviderTests
                     """,
             });
         using var p = fake.CreateProvider(ExchangeServerVersion.Exchange2010_SP2);
-        var page = await p.GetMessagesAsync("inbox", 0, 10);
+        var page = await p.GetMessagesAsync("inbox", 0, 10, TestContext.Current.CancellationToken);
         Assert.Empty(fake.ValidationErrors);
         Assert.DoesNotContain(fake.Last("GetItem").Descendants(T + "FieldURI"), f => f.Attribute("FieldURI")!.Value is "item:Flag" or "item:Preview");
         Assert.Equal(FlagStatus.Flagged, page.Items[0].Flag);
@@ -126,7 +126,7 @@ public class ExchangeProviderTests
             .ServeFolders(details);
         using var p = fake.CreateProvider();
 
-        var folders = await p.GetFoldersAsync();
+        var folders = await p.GetFoldersAsync(TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var getFolders = fake.All("GetFolder").ToList();
@@ -149,7 +149,7 @@ public class ExchangeProviderTests
 
         // Second call: incremental, only the changes travel.
         int before = fake.All("GetFolder").Count();
-        var again = await p.GetFoldersAsync();
+        var again = await p.GetFoldersAsync(TestContext.Current.CancellationToken);
         Assert.Equal("H1", fake.Last("SyncFolderHierarchy").Element(M + "SyncState")!.Value);
         Assert.Equal(new[] { "SUB" }, fake.All("GetFolder").Skip(before).SelectMany(g => g.Descendants(T + "FolderId")).Select(e => e.Attribute("Id")!.Value));
         Assert.DoesNotContain(again, f => f.Id == "F0");
@@ -180,7 +180,7 @@ public class ExchangeProviderTests
             .ServeItems(items);
         using var p = fake.CreateProvider();
 
-        var r = await p.SyncFolderItemsAsync("FOLDER", "STATE1", 256);
+        var r = await p.SyncFolderItemsAsync("FOLDER", "STATE1", 256, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var sync = fake.Last("SyncFolderItems");
@@ -208,7 +208,7 @@ public class ExchangeProviderTests
         var fake = new FakeEws().On("SyncFolderItems",
             Response("SyncFolderItems", Error("SyncFolderItems", "ErrorInvalidSyncStateData")));
         using var p = fake.CreateProvider();
-        await Assert.ThrowsAsync<SyncStateInvalidException>(() => p.SyncFolderItemsAsync("F", "bad", 10));
+        await Assert.ThrowsAsync<SyncStateInvalidException>(() => p.SyncFolderItemsAsync("F", "bad", 10, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class ExchangeProviderTests
             $"<m:Attachments><t:FileAttachment><t:AttachmentId Id=\"ATT1\"/><t:Name>a.bin</t:Name><t:ContentType>application/octet-stream</t:ContentType><t:Content>{Convert.ToBase64String(data)}</t:Content></t:FileAttachment></m:Attachments>")));
         using var p = fake.CreateProvider();
 
-        var a = await p.GetAttachmentAsync("ATT1");
+        var a = await p.GetAttachmentAsync("ATT1", TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal(data, a.Content);
@@ -238,15 +238,15 @@ public class ExchangeProviderTests
             .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items><t:Message><t:ItemId Id=\"IMP\"/></t:Message></m:Items>")));
         using var p = fake.CreateProvider();
 
-        await p.SetReadStateAsync(new[] { "A", "B" }, true);
-        await p.SetFlagAsync(new[] { "A" }, FlagStatus.Flagged);
-        await p.SetCategoriesAsync("A", new[] { "Blue", "Work" });
-        await p.SetCategoriesAsync("A", Array.Empty<string>());
-        var moved = await p.MoveItemsAsync(new[] { "A", "B" }, "deleteditems");
-        var copied = await p.CopyItemsAsync(new[] { "A" }, "FOLDERX");
-        await p.DeleteItemsAsync(new[] { "A" }, permanent: true);
-        var mime = await p.GetMimeContentAsync("I");
-        var imported = await p.ImportMimeAsync("inbox", "Subject: hi\r\n\r\nbody"u8.ToArray());
+        await p.SetReadStateAsync(new[] { "A", "B" }, true, TestContext.Current.CancellationToken);
+        await p.SetFlagAsync(new[] { "A" }, FlagStatus.Flagged, TestContext.Current.CancellationToken);
+        await p.SetCategoriesAsync("A", new[] { "Blue", "Work" }, TestContext.Current.CancellationToken);
+        await p.SetCategoriesAsync("A", Array.Empty<string>(), TestContext.Current.CancellationToken);
+        var moved = await p.MoveItemsAsync(new[] { "A", "B" }, "deleteditems", TestContext.Current.CancellationToken);
+        var copied = await p.CopyItemsAsync(new[] { "A" }, "FOLDERX", TestContext.Current.CancellationToken);
+        await p.DeleteItemsAsync(new[] { "A" }, permanent: true, ct: TestContext.Current.CancellationToken);
+        var mime = await p.GetMimeContentAsync("I", TestContext.Current.CancellationToken);
+        var imported = await p.ImportMimeAsync("inbox", "Subject: hi\r\n\r\nbody"u8.ToArray(), TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal(new string?[] { "NEW1", null }, moved);
@@ -261,8 +261,8 @@ public class ExchangeProviderTests
     {
         var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem")));
         using var p = fake.CreateProvider(ExchangeServerVersion.Exchange2010_SP2);
-        await p.SetFlagAsync(new[] { "A" }, FlagStatus.Flagged);
-        await p.SetFlagAsync(new[] { "A" }, FlagStatus.NotFlagged);
+        await p.SetFlagAsync(new[] { "A" }, FlagStatus.Flagged, TestContext.Current.CancellationToken);
+        await p.SetFlagAsync(new[] { "A" }, FlagStatus.NotFlagged, TestContext.Current.CancellationToken);
         Assert.Empty(fake.ValidationErrors);
     }
 
@@ -275,7 +275,7 @@ public class ExchangeProviderTests
             .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
         using var p = fake.CreateProvider();
 
-        var page = await p.SearchMessagesAsync("inbox", "report", 0, 20);
+        var page = await p.SearchMessagesAsync("inbox", "report", 0, 20, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var finds = fake.All("FindItem").ToList();
@@ -307,7 +307,7 @@ public class ExchangeProviderTests
             """));
         using var p = fake.CreateProvider();
 
-        var r = await p.ResolveNamesAsync("bob");
+        var r = await p.ResolveNamesAsync("bob", TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal(2, r.Count);
@@ -324,7 +324,7 @@ public class ExchangeProviderTests
     {
         var fake = new FakeEws().On("ResolveNames", Response("ResolveNames", Error("ResolveNames", "ErrorNameResolutionNoResults")));
         using var p = fake.CreateProvider();
-        Assert.Empty(await p.ResolveNamesAsync("zzz"));
+        Assert.Empty(await p.ResolveNamesAsync("zzz", TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -341,14 +341,14 @@ public class ExchangeProviderTests
             .On("GetItem", Response("GetItem", Success("GetItem", "<m:Items><t:MeetingRequest><t:ItemId Id=\"MR\" ChangeKey=\"CK\"/></t:MeetingRequest></m:Items>")));
         using var p = fake.CreateProvider();
 
-        var contacts = await p.GetContactsAsync();
+        var contacts = await p.GetContactsAsync(ct: TestContext.Current.CancellationToken);
         await p.CreateContactAsync(new Contact
         {
             GivenName = "Carol", Surname = "Jones", CompanyName = "Fabrikam", JobTitle = "CTO", Department = "IT",
             EmailAddresses = { "carol@fabrikam.com" }, MobilePhone = "+1 555 0101", Notes = "met at conf",
-        });
-        await p.UpdateContactAsync(new Contact { Id = "C1", DisplayName = "Alice A", EmailAddresses = { "alice@contoso.com" } });
-        await p.RespondToMeetingAsync("MR", MeetingResponse.Tentative, "Might be late");
+        }, ct: TestContext.Current.CancellationToken);
+        await p.UpdateContactAsync(new Contact { Id = "C1", DisplayName = "Alice A", EmailAddresses = { "alice@contoso.com" } }, TestContext.Current.CancellationToken);
+        await p.RespondToMeetingAsync("MR", MeetingResponse.Tentative, "Might be late", TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal("alice@contoso.com", contacts.Single().PrimaryEmail);
@@ -380,13 +380,13 @@ public class ExchangeProviderTests
                 """);
         using var p = fake.CreateProvider();
 
-        var oof = await p.GetOutOfOfficeAsync();
+        var oof = await p.GetOutOfOfficeAsync(TestContext.Current.CancellationToken);
         Assert.Equal(OofState.Scheduled, oof.State);
         Assert.Equal(OofExternalAudience.Known, oof.ExternalAudience);
         Assert.Equal("On holiday", oof.InternalReply);
 
         oof.State = OofState.Enabled;
-        await p.SetOutOfOfficeAsync(oof);
+        await p.SetOutOfOfficeAsync(oof, TestContext.Current.CancellationToken);
         Assert.Empty(fake.ValidationErrors);
     }
 
@@ -411,7 +411,7 @@ public class ExchangeProviderTests
             .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
         using var p = fake.CreateProvider();
 
-        var page = await p.GetMessagesAsync("inbox", 0, 10);
+        var page = await p.GetMessagesAsync("inbox", 0, 10, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, fake.All("FindItem").Count());
         Assert.Single(page.Items);
@@ -432,7 +432,7 @@ public class ExchangeProviderTests
         using var p = fake.CreateProvider();
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var page = await p.GetMessagesAsync("inbox", 0, 10);
+        var page = await p.GetMessagesAsync("inbox", 0, 10, TestContext.Current.CancellationToken);
 
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"waited {sw.Elapsed} instead of the server's 10 ms");
         Assert.Equal(2, fake.All("FindItem").Count());
@@ -458,7 +458,7 @@ public class ExchangeProviderTests
         var drop = new DropOnce(fake);
         using var p = new ExchangeProvider(Account(), new HttpClient(drop));
 
-        await p.ConnectAsync();
+        await p.ConnectAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(2, drop.Drops);
         Assert.Single(fake.Requests);
@@ -472,7 +472,7 @@ public class ExchangeProviderTests
         using var p = new ExchangeProvider(Account(), new HttpClient(drop));
 
         var ex = await Assert.ThrowsAsync<MailConnectionException>(() =>
-            p.SendAsync(new OutgoingMessage { To = { new EmailAddress("", "a@b.ru") }, Subject = "x", Body = "y" }));
+            p.SendAsync(new OutgoingMessage { To = { new EmailAddress("", "a@b.ru") }, Subject = "x", Body = "y" }, TestContext.Current.CancellationToken));
 
         Assert.Equal(1, drop.Drops);
         Assert.Empty(fake.Requests);
@@ -490,11 +490,11 @@ public class ExchangeProviderTests
             .On("EmptyFolder", Response("EmptyFolder", Success("EmptyFolder")));
         using var p = fake.CreateProvider();
 
-        var f = await p.CreateFolderAsync("inbox", "Проекты");
-        await p.RenameFolderAsync("NEWF", "Проекты 2026");
-        await p.DeleteFolderAsync("NEWF", permanent: false);
-        await p.DeleteFolderAsync("NEWF", permanent: true);
-        await p.EmptyFolderAsync("deleteditems", false);
+        var f = await p.CreateFolderAsync("inbox", "Проекты", TestContext.Current.CancellationToken);
+        await p.RenameFolderAsync("NEWF", "Проекты 2026", TestContext.Current.CancellationToken);
+        await p.DeleteFolderAsync("NEWF", permanent: false, ct: TestContext.Current.CancellationToken);
+        await p.DeleteFolderAsync("NEWF", permanent: true, ct: TestContext.Current.CancellationToken);
+        await p.EmptyFolderAsync("deleteditems", false, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal("NEWF", f.Id);
@@ -544,7 +544,7 @@ public class ExchangeProviderTests
         });
         using var p = fake.CreateProvider();
 
-        var m = await p.GetMessageAsync("M1");
+        var m = await p.GetMessageAsync("M1", TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var get = fake.Last("GetItem");
@@ -564,7 +564,7 @@ public class ExchangeProviderTests
 
         // Attachments come from the already downloaded MIME: no extra server round trip.
         int before = fake.Requests.Count;
-        var content = await p.GetAttachmentsAsync(new[] { file.Id, inline.Id });
+        var content = await p.GetAttachmentsAsync(new[] { file.Id, inline.Id }, TestContext.Current.CancellationToken);
         Assert.Equal(before, fake.Requests.Count);
         Assert.Equal("данные", System.Text.Encoding.UTF8.GetString(content[0].Content));
         Assert.Equal(new byte[] { 137, 80, 78, 71 }, content[1].Content);
@@ -593,7 +593,7 @@ public class ExchangeProviderTests
         });
         using var p = fake.CreateProvider();
 
-        var m = await p.GetMessageAsync("M1");
+        var m = await p.GetMessageAsync("M1", TestContext.Current.CancellationToken);
 
         Assert.Equal("Счёт на оплату", m.Subject);
         Assert.Equal("Бухгалтерия", m.From!.Name);
@@ -619,7 +619,7 @@ public class ExchangeProviderTests
             Importance = Importance.High,
             RequestDeliveryReceipt = true,
             Attachments = { new OutgoingAttachment { Name = "Договор №5.pdf", ContentType = "application/pdf", Content = new byte[] { 37, 80, 68, 70 } } },
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var creates = fake.All("CreateItem").ToList();
@@ -666,10 +666,10 @@ public class ExchangeProviderTests
             To = { new EmailAddress("Петров Пётр", "petrov@contoso.ru") },
             Subject = action == ComposeAction.Forward ? "FW: Вопрос" : "RE: Вопрос",
             Body = "<p>До пятницы.</p>",
-        });
+        }, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
-        Assert.Empty(fake.Requests.Where(r => r.Descendants(T + "ReplyToItem").Any() || r.Descendants(T + "ForwardItem").Any()));
+        Assert.DoesNotContain(fake.Requests, r => r.Descendants(T + "ReplyToItem").Any() || r.Descendants(T + "ForwardItem").Any());
         var sent = SentMime(fake.All("CreateItem").First());
         Assert.Contains("До пятницы.", sent.HtmlBody);
         Assert.Contains("Подскажите сроки", sent.HtmlBody);
@@ -694,8 +694,8 @@ public class ExchangeProviderTests
         account.SharedMailbox = "team@contoso.ru";
         using var p = new ExchangeProvider(account, new HttpClient(fake));
 
-        var id = await p.SaveDraftAsync(new OutgoingMessage { Subject = "черновик", Body = "x", Bcc = { new EmailAddress("", "b@contoso.ru") } });
-        await p.ImportMimeAsync("inbox", Mime("Импорт", "<p>x</p>"));
+        var id = await p.SaveDraftAsync(new OutgoingMessage { Subject = "черновик", Body = "x", Bcc = { new EmailAddress("", "b@contoso.ru") } }, TestContext.Current.CancellationToken);
+        await p.ImportMimeAsync("inbox", Mime("Импорт", "<p>x</p>"), TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal("D", id);
@@ -716,7 +716,7 @@ public class ExchangeProviderTests
         var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem"), Success("UpdateItem")));
         using var p = fake.CreateProvider();
 
-        await p.SetReadStateAsync(new[] { "A", "B" }, true);
+        await p.SetReadStateAsync(new[] { "A", "B" }, true, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var req = fake.Last("UpdateItem");
@@ -731,7 +731,7 @@ public class ExchangeProviderTests
     {
         var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem"), Error("UpdateItem", "ErrorItemNotFound")));
         using var p = fake.CreateProvider();
-        await p.SetReadStateAsync(new[] { "A", "GONE" }, true);
+        await p.SetReadStateAsync(new[] { "A", "GONE" }, true, TestContext.Current.CancellationToken);
     }
 
     [Theory]
@@ -743,7 +743,7 @@ public class ExchangeProviderTests
         var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem")));
         using var p = fake.CreateProvider(version);
 
-        await p.SetFlagAsync(new[] { "A" }, flag);
+        await p.SetFlagAsync(new[] { "A" }, flag, TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var req = fake.Last("UpdateItem");
@@ -761,8 +761,8 @@ public class ExchangeProviderTests
                 Success("MarkAsJunk", "<m:MovedItemId Id=\"J1\"/>"), Success("MarkAsJunk", "<m:MovedItemId Id=\"J2\"/>")));
         using var p = fake.CreateProvider();
 
-        Assert.True(await p.MarkAllReadAsync("inbox", true));
-        var moved = await p.MarkAsJunkAsync(new[] { "A", "B" }, isJunk: true);
+        Assert.True(await p.MarkAllReadAsync("inbox", true, TestContext.Current.CancellationToken));
+        var moved = await p.MarkAsJunkAsync(new[] { "A", "B" }, isJunk: true, ct: TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var all = fake.Last("MarkAllItemsAsRead");
@@ -780,8 +780,8 @@ public class ExchangeProviderTests
         var fake = new FakeEws().On("MoveItem", Response("MoveItem", Success("MoveItem", "<m:Items><t:Message><t:ItemId Id=\"N\"/></t:Message></m:Items>")));
         using var p = fake.CreateProvider(ExchangeServerVersion.Exchange2010_SP2);
 
-        Assert.False(await p.MarkAllReadAsync("inbox", true));
-        var moved = await p.MarkAsJunkAsync(new[] { "A" }, isJunk: true);
+        Assert.False(await p.MarkAllReadAsync("inbox", true, TestContext.Current.CancellationToken));
+        var moved = await p.MarkAsJunkAsync(new[] { "A" }, isJunk: true, ct: TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal("junkemail", fake.Last("MoveItem").Element(M + "ToFolderId")!.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
@@ -796,8 +796,8 @@ public class ExchangeProviderTests
             .On("DeleteItem", Response("DeleteItem", Success("DeleteItem"), Error("DeleteItem", "ErrorItemNotFound")));
         using var p = fake.CreateProvider();
 
-        await p.DeleteItemsAsync(new[] { "A" }, permanent: false);
-        await p.DeleteItemsAsync(new[] { "A", "GONE" }, permanent: true);
+        await p.DeleteItemsAsync(new[] { "A" }, permanent: false, ct: TestContext.Current.CancellationToken);
+        await p.DeleteItemsAsync(new[] { "A", "GONE" }, permanent: true, ct: TestContext.Current.CancellationToken);
 
         Assert.Empty(fake.ValidationErrors);
         var move = fake.Last("MoveItem");
@@ -811,7 +811,7 @@ public class ExchangeProviderTests
     {
         var fake = new FakeEws().On("GetFolder", _ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
         using var p = fake.CreateProvider();
-        await Assert.ThrowsAsync<MailAuthenticationException>(() => p.ConnectAsync());
+        await Assert.ThrowsAsync<MailAuthenticationException>(() => p.ConnectAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -819,7 +819,7 @@ public class ExchangeProviderTests
     {
         var fake = new FakeEws().On("GetItem", Response("GetItem", Error("GetItem", "ErrorItemNotFound", "The specified object was not found in the store.")));
         using var p = fake.CreateProvider();
-        var ex = await Assert.ThrowsAsync<EwsResponseException>(() => p.GetMessageAsync("missing"));
+        var ex = await Assert.ThrowsAsync<EwsResponseException>(() => p.GetMessageAsync("missing", TestContext.Current.CancellationToken));
         Assert.Equal("ErrorItemNotFound", ex.ErrorCode);
         Assert.Contains("не найден", ex.Message);
     }
@@ -829,7 +829,7 @@ public class ExchangeProviderTests
     {
         var fake = new FakeEws().On("GetFolder", Response("GetFolder", Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"INBOX\"/></t:Folder></m:Folders>")));
         using var p = fake.CreateProvider();
-        var info = await p.ConnectAsync();
+        var info = await p.ConnectAsync(TestContext.Current.CancellationToken);
         Assert.Empty(fake.ValidationErrors);
         Assert.Equal("15.2.1544.4", info.ServerVersion);
         Assert.Equal("jane@contoso.com", info.EmailAddress);

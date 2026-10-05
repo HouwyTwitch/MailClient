@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using MailClient.Core;
 using MailClient.Core.Mime;
 using MailClient.Core.Models;
 using MailClient.Core.Rendering;
@@ -33,6 +34,7 @@ public sealed class ImapProvider : IMailProvider
 
     public ImapProvider(AccountSettings account, ICredentialProvider credentials)
     {
+        CodePages.EnsureRegistered(); // MailKit parses headers and bodies itself
         Account = account;
         _credentials = credentials;
         if (string.IsNullOrWhiteSpace(account.ImapHost))
@@ -298,7 +300,7 @@ public sealed class ImapProvider : IMailProvider
         var folder = await SpecialFolderAsync(kind, ct).ConfigureAwait(false);
         if (folder != null) return folder;
         var root = _imap.GetFolder(_imap.PersonalNamespaces[0]);
-        folder = await root.CreateAsync(name, true, ct).ConfigureAwait(false);
+        folder = Created(await root.CreateAsync(name, true, ct).ConfigureAwait(false), name);
         _special[kind] = folder.FullName;
         return folder;
     }
@@ -307,7 +309,7 @@ public sealed class ImapProvider : IMailProvider
         RunAsync(async () =>
         {
             var parent = await FolderAsync(parentFolderId, ct).ConfigureAwait(false);
-            var created = await parent.CreateAsync(name, true, ct).ConfigureAwait(false);
+            var created = Created(await parent.CreateAsync(name, true, ct).ConfigureAwait(false), name);
             return new MailFolder { Id = created.FullName, ParentId = parentFolderId, DisplayName = created.Name, FolderClass = "IPF.Note" };
         }, ct);
 
@@ -315,8 +317,13 @@ public sealed class ImapProvider : IMailProvider
     {
         var f = await FolderAsync(folderId, ct).ConfigureAwait(false);
         if (f.IsOpen) await f.CloseAsync(false, ct).ConfigureAwait(false);
-        await f.RenameAsync(f.ParentFolder, newName, ct).ConfigureAwait(false);
+        var parent = f.ParentFolder ?? _imap.GetFolder(_imap.PersonalNamespaces[0]);
+        await f.RenameAsync(parent, newName, ct).ConfigureAwait(false);
     }, ct);
+
+    /// <summary>CREATE succeeded but the server did not list the new folder.</summary>
+    private static IMailFolder Created(IMailFolder? folder, string name) =>
+        folder ?? throw new MailServiceException($"Сервер не подтвердил создание папки «{name}». Обновите список папок.");
 
     public Task MoveFolderAsync(string folderId, string newParentFolderId, CancellationToken ct = default) => RunAsync(async () =>
     {

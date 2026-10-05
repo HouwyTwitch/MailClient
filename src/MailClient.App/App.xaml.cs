@@ -23,7 +23,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         // Russian single-byte charsets (windows-1251, KOI8-R, CP866) for MimeKit/MailKit — before any mail is read.
-        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        MailClient.Core.CodePages.EnsureRegistered();
         // Russian culture for dates, numbers and WPF controls (DatePicker etc.).
         var ru = RuText.Culture;
         Thread.CurrentThread.CurrentCulture = ru;

@@ -210,12 +210,12 @@ public class SyncEngineTests : IDisposable
         var arrived = new List<MessageSummary>();
         engine.NewMessagesArrived += (_, list) => arrived.AddRange(list);
 
-        await engine.SyncFolderAsync("F");          // initial: 2 pages, no notifications
+        await engine.SyncFolderAsync("F", TestContext.Current.CancellationToken);          // initial: 2 pages, no notifications
         Assert.Equal(2, cache.CountMessages("F"));
         Assert.Equal("S2", cache.GetSyncState("F"));
         Assert.Empty(arrived);
 
-        await engine.SyncFolderAsync("F");          // incremental: new unread "c", "a" deleted
+        await engine.SyncFolderAsync("F", TestContext.Current.CancellationToken);          // incremental: new unread "c", "a" deleted
         Assert.Equal(new[] { "c" }, arrived.Select(m => m.Id));
         Assert.Equal(new[] { "b", "c" }, cache.GetMessages("F", 0, 10).Select(m => m.Id).OrderBy(x => x));
         Assert.Equal("S2", fake.Last("SyncFolderItems").Element(FakeEws.M + "SyncState")!.Value);
@@ -242,8 +242,8 @@ public class SyncEngineTests : IDisposable
         var arrived = new List<MessageSummary>();
         engine.NewMessagesArrived += (_, list) => arrived.AddRange(list);
 
-        await engine.SyncFolderAsync("F");
-        await engine.SyncFolderAsync("F");
+        await engine.SyncFolderAsync("F", TestContext.Current.CancellationToken);
+        await engine.SyncFolderAsync("F", TestContext.Current.CancellationToken);
 
         Assert.Empty(arrived);                                   // an update of a known unread message is not new mail
         var byId = cache.GetMessages("F", 0, 10).ToDictionary(m => m.Id);
@@ -265,7 +265,7 @@ public class SyncEngineTests : IDisposable
         cache.SetSyncState("F", "STALE");
         cache.UpsertMessages(new[] { new MessageSummary { Id = "old", FolderId = "F" } });
 
-        await new SyncEngine(provider, cache).SyncFolderAsync("F");
+        await new SyncEngine(provider, cache).SyncFolderAsync("F", TestContext.Current.CancellationToken);
 
         Assert.Equal("NEW", cache.GetSyncState("F"));
         Assert.Equal(new[] { "z" }, cache.GetMessages("F", 0, 10).Select(m => m.Id));

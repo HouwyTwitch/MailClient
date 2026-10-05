@@ -13,7 +13,7 @@ public static class CyrillicCharset
     private static readonly int[] Candidates = { 1251, 20866, 21866, 866, 28595, 10007 };
     private const string Frequent = "оеаинтсрвлкмдпуяыьгзбчйхжшюцщэфъё";
 
-    static CyrillicCharset() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    static CyrillicCharset() => CodePages.EnsureRegistered();
 
     /// <summary>Best Cyrillic decoding of <paramref name="bytes"/>; windows-1251 when undecidable.</summary>
     public static Encoding Detect(ReadOnlySpan<byte> bytes) => Encoding.GetEncoding(Best(bytes).codePage);
