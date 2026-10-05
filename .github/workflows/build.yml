@@ -9,12 +9,12 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
       - name: Test
-        run: dotnet test tests/MailClient.Tests -c Release
+        run: dotnet test --project tests/MailClient.Tests -c Release
       - name: Publish
         run: >
           dotnet publish src/MailClient.App -c Release -r win-x64 --self-contained true
@@ -25,7 +25,7 @@ jobs:
         run: |
           choco install innosetup --no-progress -y
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DSourceDir=$pwd\publish\win-x64" installer\MailClient.iss
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MailClient
           path: |

@@ -7,11 +7,12 @@ using CommunityToolkit.Mvvm.Input;
 using MailClient.App.Services;
 using MailClient.App.Views;
 using MailClient.Core.Models;
+using MailClient.Core.Services;
 using Microsoft.Win32;
 
 namespace MailClient.App.ViewModels;
 
-public enum AppSection { Mail, Calendar, Contacts, Tasks }
+public enum AppSection { Mail, Contacts }
 
 public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
@@ -36,16 +37,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _reloadTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(300), DispatcherPriority.Background, (_, _) => FlushReloads(), _dispatcher) { IsEnabled = false };
         _markReadTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher);
         _markReadTimer.Tick += async (_, _) => await MarkCurrentAsReadAsync();
-        Calendar = new CalendarViewModel(() => CurrentSession);
         Contacts = new ContactsViewModel(() => CurrentSession, WriteTo);
-        Tasks = new TasksViewModel(() => CurrentSession);
     }
 
     public AppSettings Settings => _settings;
     public IReadOnlyList<AccountSession> Sessions => _sessions;
-    public CalendarViewModel Calendar { get; }
     public ContactsViewModel Contacts { get; }
-    public TasksViewModel Tasks { get; }
     public TrayService? Tray { get; set; }
 
     public ObservableCollection<FolderNodeViewModel> Roots { get; } = new();
@@ -55,7 +52,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public List<MessageItemViewModel> SelectedMessages { get; } = new();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected))]
+    [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected), nameof(IsJunkFolder),
+        nameof(SupportsContacts), nameof(SupportsOutOfOffice))]
     private FolderNodeViewModel? _selectedFolder;
 
     [ObservableProperty]
@@ -76,6 +74,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _windowTitle = "Корпоративная почта";
 
     public bool HasSelection => SelectedMessage != null;
+
+    private ProviderCapabilities Caps => CurrentSession?.Provider.Capabilities ?? ProviderCapabilities.All;
+    public bool SupportsContacts => Caps.HasFlag(ProviderCapabilities.Contacts);
+    public bool SupportsOutOfOffice => Caps.HasFlag(ProviderCapabilities.OutOfOffice);
     public bool HasPreview => Preview != null;
     public bool HasAccounts => _sessions.Count > 0;
     public string FolderTitle => SelectedFolder?.Name ?? "";
@@ -91,7 +93,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     public void Start()
     {
-        foreach (var account in _settings.Accounts)
+        foreach (var account in _settings.Accounts.ToList())
         {
             try
             {
@@ -100,7 +102,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             catch (Exception ex)
             {
                 Log.Error($"Учётная запись {account.EmailAddress} не открыта", ex);
-                Dialogs.Error(ex, $"Не удалось открыть учётную запись «{account.EmailAddress}». Проверьте её настройки");
+                // Without a session the account could not be reached from the UI: offer its settings right away.
+                if (!Dialogs.Confirm($"Не удалось открыть учётную запись «{account.EmailAddress}».\n\n{RuText.Error(ex)}\n\nОткрыть настройки учётной записи?"))
+                    continue;
+                var copy = account.Clone();
+                if (WindowFactory.EditAccount(copy, _credentials, isNew: false) != true) continue;
+                var index = _settings.Accounts.FindIndex(a => a.Id == copy.Id);
+                if (index >= 0) _settings.Accounts[index] = copy;
+                SettingsStore.Save(_settings);
+                try { AddSession(copy); }
+                catch (Exception again) { Dialogs.Error(again, "Учётная запись по-прежнему не открывается"); }
             }
         }
         RebuildTree();
@@ -233,7 +244,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             FolderNodeViewModel? toSelect = null;
             if (selectedId != null) toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Id == selectedId);
-            if (toSelect == null && (firstBuild || selectedId == null || selectedId.StartsWith("root:")))
+            if (toSelect == null && (firstBuild || selectedId == null || selectedId.StartsWith("root:", StringComparison.Ordinal)))
                 toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Folder.WellKnown == WellKnownFolder.Inbox);
             if (toSelect != null)
             {
@@ -259,7 +270,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         IsSearchResult = false;
         if (newValue != null) newValue.Session.ActiveFolderId = newValue.IsAccountRoot ? null : newValue.Id;
         _ = LoadFolderAsync(primeFromServer: true);
-        if (Section != AppSection.Mail && oldValue?.Session != newValue?.Session) _ = LoadSectionAsync();
+        if (Section != AppSection.Mail && !SectionSupported(Section)) Section = AppSection.Mail;
+        else if (Section != AppSection.Mail && oldValue?.Session != newValue?.Session) _ = LoadSectionAsync();
     }
 
     private async Task LoadFolderAsync(bool primeFromServer)
@@ -283,11 +295,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 if (Messages.Count == 0) ListStatus = "Загрузка писем…";
                 await folder.Session.Sync.PrimeFolderAsync(folder.Id, 100);
                 await folder.Session.Sync.SyncFolderAsync(folder.Id);
+                // A sync without changes raises no reload: settle the "loading" text for an empty folder here.
+                if (SelectedFolder == folder && !IsSearchResult && Messages.Count == 0) ListStatus = "В папке нет писем";
             }
             catch (Exception ex)
             {
-                Log.Warn($"Папка {folder.Name} не синхронизирована: {ex.Message}");
-                if (Messages.Count == 0) ListStatus = "Нет связи с сервером. " + RuText.Error(ex);
+                Log.Warn($"Папка {folder.Name} не синхронизирована: {MailClient.Core.Diagnostics.MailLog.Describe(ex)}");
+                if (SelectedFolder == folder && Messages.Count == 0) ListStatus = "Нет связи с сервером. " + RuText.Error(ex);
             }
         }
     }
@@ -302,16 +316,24 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private async void FlushReloads()
     {
         _reloadTimer.Stop();
-        var folders = _pendingReloadFolders.ToList();
+        var folders = new HashSet<string>(_pendingReloadFolders);
         _pendingReloadFolders.Clear();
-        foreach (var node in Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => folders.Contains(n.Id)))
+        try
         {
-            var cached = node.Session.Cache.GetFolders().FirstOrDefault(f => f.Id == node.Id);
-            if (cached != null) node.Unread = cached.UnreadCount;
+            foreach (var root in Roots)
+            {
+                var counts = root.Session.Cache.GetFolders().ToDictionary(f => f.Id, f => f.UnreadCount);
+                foreach (var node in root.SelfAndDescendants().Where(n => folders.Contains(n.Id)))
+                    if (counts.TryGetValue(node.Id, out var unread)) node.Unread = unread;
+            }
+            UpdateUnreadTotals();
+            if (SelectedFolder != null && folders.Contains(SelectedFolder.Id) && !IsSearchResult)
+                await ReloadMessagesAsync();
         }
-        UpdateUnreadTotals();
-        if (SelectedFolder != null && folders.Contains(SelectedFolder.Id) && !IsSearchResult)
-            await ReloadMessagesAsync();
+        catch (Exception ex)
+        {
+            Log.Error("Не удалось обновить список писем", ex);
+        }
     }
 
     private async Task ReloadMessagesAsync()
@@ -322,12 +344,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var list = await Task.Run(() => folder.Session.Cache.GetMessages(folder.Id, 0, count));
         if (SelectedFolder != folder || IsSearchResult) return;
         ApplyMessages(list, folder.ShowsRecipients);
-        var total = folder.Folder.TotalCount;
         ListStatus = Messages.Count == 0 ? "В папке нет писем" : "";
     }
 
     /// <summary>Updates the list in place where possible to keep scroll position and selection.</summary>
-    private void ApplyMessages(IReadOnlyList<MessageSummary> list, bool showRecipients)
+    private void ApplyMessages(List<MessageSummary> list, bool showRecipients)
     {
         var selectedId = SelectedMessage?.Id;
         var existing = Messages.ToDictionary(m => m.Id);
@@ -496,14 +517,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var folder = SelectedFolder;
         if (folder == null || folder.IsAccountRoot) return;
-        // Make sure the cache holds the whole folder, then mark everything unread as read.
         await RunAsync("Не удалось отметить папку как прочитанную", async () =>
         {
-            await folder.Session.Sync.SyncFolderAsync(folder.Id);
-            var unread = folder.Session.Cache.GetMessages(folder.Id, 0, int.MaxValue).Where(m => !m.IsRead).Select(m => m.Id).ToList();
-            if (unread.Count == 0) return;
-            await folder.Session.Provider.SetReadStateAsync(unread, true);
-            folder.Session.Cache.SetReadState(unread, true);
+            // One server call where supported (Exchange 2013+: MarkAllItemsAsRead).
+            List<string> UnreadIds() =>
+                folder.Session.Cache.GetMessages(folder.Id, 0, int.MaxValue).Where(m => !m.IsRead).Select(m => m.Id).ToList();
+            if (!await folder.Session.Provider.MarkAllReadAsync(folder.Id, true))
+            {
+                await folder.Session.Sync.SyncFolderAsync(folder.Id);
+                var toMark = await Task.Run(UnreadIds);
+                if (toMark.Count > 0) await folder.Session.Provider.SetReadStateAsync(toMark, true);
+            }
+            await Task.Run(() => folder.Session.Cache.SetReadState(UnreadIds(), true));
             folder.Unread = 0;
             foreach (var m in Messages) m.IsRead = true;
             UpdateUnreadTotals();
@@ -533,7 +558,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await RunAsync("Не удалось изменить флаг", () => folder.Session.Provider.SetFlagAsync(items.Select(i => i.Id), FlagStatus.Complete));
     }
 
-    /// <summary>Removes items from the list and selects the next one (like Outlook/Evolution).</summary>
+    /// <summary>Removes items from the list and selects the next one, so reading can continue.</summary>
     private void RemoveFromList(IReadOnlyCollection<MessageItemViewModel> items)
     {
         var index = items.Select(i => Messages.IndexOf(i)).Where(i => i >= 0).DefaultIfEmpty(-1).Min();
@@ -565,13 +590,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await RunAsync("Не удалось удалить письма", () => folder.Session.Provider.DeleteItemsAsync(items.Select(i => i.Id), permanent));
     }
 
+    public bool IsJunkFolder => SelectedFolder?.Folder.WellKnown == WellKnownFolder.JunkEmail;
+
+    /// <summary>"Junk" / "Not junk" (MarkAsJunk on Exchange 2013+, a move on older servers and IMAP).</summary>
     [RelayCommand]
     private async Task MarkAsJunkAsync()
     {
         var folder = SelectedFolder;
-        var junk = folder?.Session.FolderId(WellKnownFolder.JunkEmail);
-        if (folder == null || junk == null) return;
-        await MoveItemsToAsync(Targets.ToList(), folder, junk);
+        var items = Targets.ToList();
+        if (folder == null || items.Count == 0) return;
+        bool isJunk = !IsJunkFolder;
+        RemoveFromList(items);
+        await RunAsync(isJunk ? "Не удалось переместить в нежелательную почту" : "Не удалось вернуть письма во «Входящие»", async () =>
+        {
+            await folder.Session.Provider.MarkAsJunkAsync(items.Select(i => i.Id), isJunk);
+            StatusText = isJunk
+                ? $"В нежелательную почту: {RuText.Count(items.Count, "письмо", "письма", "писем")}"
+                : $"Во «Входящие»: {RuText.Count(items.Count, "письмо", "письма", "писем")}";
+            folder.Session.SyncNow();
+        });
     }
 
     [RelayCommand]
@@ -619,7 +656,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await MoveItemsToAsync(items, folder, target.Id);
     }
 
-    private async Task MoveItemsToAsync(IReadOnlyCollection<MessageItemViewModel> items, FolderNodeViewModel from, string targetId)
+    private async Task MoveItemsToAsync(List<MessageItemViewModel> items, FolderNodeViewModel from, string targetId)
     {
         if (items.Count == 0) return;
         RemoveFromList(items);
@@ -645,12 +682,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             AddAccount();
             return;
         }
-        WindowFactory.OpenCompose(ComposeViewModel.New(_sessions, s));
+        WindowFactory.OpenCompose(ComposeViewModel.New(_sessions, s), _settings);
     }
 
     public void ComposeMailto(string mailto)
     {
-        if (CurrentSession is { } s) WindowFactory.OpenCompose(ComposeViewModel.FromMailto(_sessions, s, mailto));
+        if (CurrentSession is { } s) WindowFactory.OpenCompose(ComposeViewModel.FromMailto(_sessions, s, mailto), _settings);
     }
 
     private void WriteTo(EmailAddress address)
@@ -659,7 +696,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var vm = ComposeViewModel.New(_sessions, s);
         vm.To = EmailAddress.FormatList(new[] { address });
         vm.IsDirty = false;
-        WindowFactory.OpenCompose(vm);
+        WindowFactory.OpenCompose(vm, _settings);
     }
 
     private async Task RespondAsync(ComposeAction action)
@@ -670,7 +707,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             var message = Preview?.Message.Id == item.Id ? Preview.Message : await session.Sync.GetMessageAsync(item.Id);
-            WindowFactory.OpenCompose(ComposeViewModel.ForResponse(_sessions, session, message, action));
+            WindowFactory.OpenCompose(ComposeViewModel.ForResponse(_sessions, session, message, action), _settings);
         }
         catch (Exception ex)
         {
@@ -693,7 +730,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (folder.Folder.WellKnown == WellKnownFolder.Drafts)
             {
-                WindowFactory.OpenCompose(await ComposeViewModel.FromDraftAsync(_sessions, folder.Session, item.Id));
+                WindowFactory.OpenCompose(await ComposeViewModel.FromDraftAsync(_sessions, folder.Session, item.Id), _settings);
                 return;
             }
             var preview = await MessagePreviewViewModel.LoadAsync(folder.Session, _settings, item.Id, CancellationToken.None);
@@ -766,15 +803,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private bool SectionSupported(AppSection s) => s != AppSection.Contacts || SupportsContacts;
+
     partial void OnSectionChanged(AppSection value) => _ = LoadSectionAsync();
 
-    private Task LoadSectionAsync() => Section switch
-    {
-        AppSection.Calendar => Calendar.LoadAsync(),
-        AppSection.Contacts => Contacts.LoadAsync(),
-        AppSection.Tasks => Tasks.LoadAsync(),
-        _ => Task.CompletedTask,
-    };
+    private Task LoadSectionAsync() => Section == AppSection.Contacts ? Contacts.LoadAsync() : Task.CompletedTask;
 
     // ================================================================== folder management
 
@@ -908,6 +941,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         var dlg = new OpenFileDialog { Title = "Импорт писем", Filter = "Письма (*.eml)|*.eml", Multiselect = true };
         if (dlg.ShowDialog() != true) return;
         int ok = 0;
+        var failed = new List<string>();
         foreach (var file in dlg.FileNames)
         {
             try
@@ -917,10 +951,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                Dialogs.Error(ex, $"Не удалось импортировать «{Path.GetFileName(file)}»");
+                Log.Warn($"Импорт «{file}» не выполнен: {ex.Message}");
+                failed.Add($"• {Path.GetFileName(file)}: {RuText.Error(ex)}");
             }
         }
         StatusText = $"Импортировано: {RuText.Count(ok, "письмо", "письма", "писем")}";
+        if (failed.Count > 0)
+            Dialogs.Error($"Не удалось импортировать {RuText.Count(failed.Count, "файл", "файла", "файлов")}:\n\n" +
+                          string.Join("\n", failed.Take(10)) + (failed.Count > 10 ? "\n…" : ""));
         folder.Session.SyncNow();
     }
 
@@ -929,7 +967,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void OpenOutOfOffice()
     {
-        if (CurrentSession is { } s) WindowFactory.OutOfOffice(s);
+        if (CurrentSession is not { } s) return;
+        if (!SupportsOutOfOffice)
+        {
+            Dialogs.Info("Автоответы настраиваются только для учётных записей Microsoft Exchange. " +
+                         "Для Яндекс 360 и Mail.ru включите автоответ в веб-интерфейсе почты.");
+            return;
+        }
+        WindowFactory.OutOfOffice(s);
     }
 
     [RelayCommand]
@@ -943,13 +988,42 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "Commands are generated for instance methods")]
     private void OpenLogs() => WindowsIntegration.ShellOpen(AppPaths.Logs);
 
+    /// <summary>ZIP with logs, settings without secrets and system data for the IT department.</summary>
     [RelayCommand]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "Commands are generated for instance methods")]
+    private void SaveSupportBundle()
+    {
+        var dlg = new SaveFileDialog
+        {
+            Title = "Отчёт для техподдержки",
+            FileName = $"mailclient-report-{DateTime.Now:yyyyMMdd-HHmm}.zip",
+            Filter = "Архив ZIP (*.zip)|*.zip",
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            SupportBundle.Create(dlg.FileName);
+            Dialogs.Info($"Отчёт сохранён:\n{dlg.FileName}\n\nОн содержит журналы работы и настройки программы без паролей. Передайте файл в техподдержку.");
+        }
+        catch (Exception ex)
+        {
+            Dialogs.Error(ex, "Не удалось сохранить отчёт");
+        }
+    }
+
+    [RelayCommand]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "Commands are generated for instance methods")]
     private void ShowAbout() => WindowFactory.About();
 
     public void Dispose()
     {
+        _reloadTimer.Stop();
+        _markReadTimer.Stop();
+        _previewCts?.Cancel();
+        _previewCts?.Dispose();
         foreach (var s in _sessions) s.Dispose();
         _sessions.Clear();
     }

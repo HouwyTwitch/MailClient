@@ -5,11 +5,12 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <style>
   html, body { margin: 0; height: 100%; background: #ffffff; color: #1a1a1a; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
-  #ed { min-height: 100%; padding: 12px 16px; outline: none; box-sizing: border-box; line-height: 1.45; word-wrap: break-word; }
+  body { font-family: Calibri, 'Segoe UI', sans-serif; font-size: 11pt; }
+  #ed { min-height: 100%; padding: 12px 16px; outline: none; box-sizing: border-box; line-height: 1.4; word-wrap: break-word; }
   #ed:empty:before { content: attr(data-placeholder); color: #8a8a8a; }
   blockquote { border-left: 3px solid #9a9a9a; margin: 0 0 0 4px; padding-left: 10px; color: #555; }
   img { max-width: 100%; }
+  hr { border: 0; border-top: 1px solid #b0b0b0; }
   body.dark { background: #252528; color: #f1f1f3; }
   body.dark blockquote { color: #b5b5b5; }
   a { color: #0067c0; }
@@ -18,38 +19,213 @@
 <body>
 <div id="ed" contenteditable="true" spellcheck="true" data-placeholder="Текст письма…"></div>
 <script>
+  'use strict';
   const ed = document.getElementById('ed');
-  function post(m) { if (window.chrome && chrome.webview) chrome.webview.postMessage(m); }
-  function setContent(h) { ed.innerHTML = h; }
-  function getContent() { return ed.innerHTML; }
-  function exec(cmd, value) { ed.focus(); document.execCommand(cmd, false, value || null); post('changed'); }
-  function setDark(d) { document.body.classList.toggle('dark', d); }
+  // Marker used to turn the browser's 1–7 "font size" into an exact size in points.
+  const SIZE_MARK = '7';
+  let pendingSizePt = null;
+  let baseFont = { family: 'Calibri', sizePt: 11 };
+
+  function post(message) {
+    if (window.chrome && chrome.webview) chrome.webview.postMessage(message);
+  }
+  function changed() { post({ type: 'changed' }); scheduleState(); }
+
+  // ---------------------------------------------------------------- content
+
+  function applyBaseFont() {
+    ed.style.fontFamily = cssFamily(baseFont.family);
+    ed.style.fontSize = baseFont.sizePt + 'pt';
+  }
+
+  function cssFamily(name) { return /\s/.test(name) ? "'" + name + "'" : name; }
+
+  /** Default font of the message (from the settings or adopted from a reopened draft). */
+  function setBaseFont(family, sizePt) {
+    baseFont = { family: family, sizePt: sizePt };
+    applyBaseFont();
+    scheduleState();
+  }
+
+  /**
+   * Loads a message body. A body saved by this editor is wrapped in one div carrying the message font:
+   * the wrapper is removed and its font becomes the editor's base font again.
+   */
+  function setContent(html) {
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    // A saved draft comes back as a whole document: <meta>/<title> are dropped, <style> rules are kept.
+    for (const el of holder.querySelectorAll('meta, title, link, base')) el.remove();
+    const content = Array.from(holder.childNodes).filter(n =>
+      !(n.nodeType === Node.TEXT_NODE && !n.textContent.trim()) && !(n.nodeType === Node.ELEMENT_NODE && n.tagName === 'STYLE') &&
+      n.nodeType !== Node.COMMENT_NODE);
+    const wrapper = content.length === 1 && content[0].nodeType === Node.ELEMENT_NODE && content[0].tagName === 'DIV' &&
+      content[0].style.fontFamily ? content[0] : null;
+    if (wrapper) {
+      const family = wrapper.style.fontFamily.split(',')[0].replace(/["']/g, '').trim();
+      const size = parseFloat(wrapper.style.fontSize);
+      baseFont = { family: family || baseFont.family, sizePt: wrapper.style.fontSize.endsWith('pt') && size > 0 ? size : baseFont.sizePt };
+      const styles = Array.from(holder.querySelectorAll(':scope > style')).map(st => st.outerHTML).join('');
+      ed.innerHTML = styles + wrapper.innerHTML;
+    } else {
+      ed.innerHTML = html;
+    }
+    applyBaseFont();
+    scheduleState();
+  }
+
+  /** The body as sent: wrapped in a div with the message font, so recipients see the same font. */
+  function getContent() {
+    const copy = ed.cloneNode(true);
+    // Leftovers of undone formatting: empty spans carry nothing visible.
+    for (const span of copy.querySelectorAll('span:empty')) span.remove();
+    return '<div style="font-family:' + cssFamily(baseFont.family) + ',sans-serif;font-size:' + baseFont.sizePt + 'pt">' +
+      copy.innerHTML + '</div>';
+  }
+
+  // ---------------------------------------------------------------- formatting
+
+  function exec(cmd, value) {
+    ed.focus();
+    document.execCommand('styleWithCSS', false, cmd === 'hiliteColor' || cmd === 'foreColor' || cmd === 'fontName');
+    document.execCommand(cmd, false, value === undefined ? null : value);
+    changed();
+  }
+
+  function setFontFamily(name) { exec('fontName', cssFamily(name)); }
+
+  /** Exact size in points: mark the selection with the browser's size 7, then replace the marks with spans. */
+  function setFontSize(pt) {
+    ed.focus();
+    pendingSizePt = pt;
+    document.execCommand('styleWithCSS', false, false);
+    document.execCommand('fontSize', false, SIZE_MARK);
+    convertSizeMarks();
+    changed();
+  }
+
+  function convertSizeMarks() {
+    if (pendingSizePt === null) return;
+    const marks = ed.querySelectorAll('font[size="' + SIZE_MARK + '"]');
+    // With a caret (no selection) the mark appears only once the user types: keep the size pending until then.
+    if (marks.length === 0) return;
+    const selection = window.getSelection();
+    const caretOnly = !selection.rangeCount || selection.getRangeAt(0).collapsed;
+    const spans = [];
+    for (const mark of marks) {
+      const span = document.createElement('span');
+      span.style.fontSize = pendingSizePt + 'pt';
+      for (const inner of mark.querySelectorAll('[style]')) inner.style.fontSize = '';
+      while (mark.firstChild) span.appendChild(mark.firstChild);
+      mark.replaceWith(span);
+      spans.push(span);
+    }
+    pendingSizePt = null;
+    // Replacing the marks drops the selection: put it back on the new text (or keep typing inside the new span).
+    const range = document.createRange();
+    const last = spans[spans.length - 1];
+    if (caretOnly) {
+      range.selectNodeContents(last);
+      range.collapse(false);
+    } else {
+      range.setStart(spans[0], 0);
+      range.setEnd(last, last.childNodes.length);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  /** Text colour; null = automatic (no colour in the message, the reader's default). */
+  function setColor(color) { color ? exec('foreColor', color) : clearInlineColor('foreColor', 'color'); }
+
+  /** Highlight colour; null = none. */
+  function setHighlight(color) { color ? exec('hiliteColor', color) : clearInlineColor('hiliteColor', 'backgroundColor'); }
+
+  /** Removes a colour from the selection: apply a marker colour, then strip the marker from the markup. */
+  function clearInlineColor(cmd, prop) {
+    const marker = 'rgb(1, 2, 3)';
+    exec(cmd, '#010203');
+    for (const el of ed.querySelectorAll('[style]')) {
+      if (el.style[prop] !== marker) continue;
+      el.style[prop] = '';
+      if (!el.getAttribute('style')) el.removeAttribute('style');
+      if (el.tagName === 'SPAN' && el.attributes.length === 0) el.replaceWith(...el.childNodes);
+    }
+    for (const font of ed.querySelectorAll('font[color="#010203"]')) font.replaceWith(...font.childNodes);
+    changed();
+  }
+
+  function insertImage(dataUrl) { exec('insertImage', dataUrl); }
+
+  function setDark(dark) { document.body.classList.toggle('dark', dark); }
+
   function focusStart() {
     ed.focus();
-    const r = document.createRange(); r.setStart(ed, 0); r.collapse(true);
-    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    const range = document.createRange();
+    range.setStart(ed, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
   }
-  ed.addEventListener('input', () => post('changed'));
-  // Pasted screenshots: insert as data: images (converted to inline cid: attachments when sending).
+
+  function focusEditor() { ed.focus(); }
+
+  // ---------------------------------------------------------------- toolbar state
+
+  let stateScheduled = false;
+  function scheduleState() {
+    if (stateScheduled) return;
+    stateScheduled = true;
+    requestAnimationFrame(() => { stateScheduled = false; reportState(); });
+  }
+
+  function reportState() {
+    const selection = window.getSelection();
+    let node = selection && selection.rangeCount ? selection.anchorNode : null;
+    if (!node || !ed.contains(node)) node = ed;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const style = getComputedStyle(node);
+    const family = style.fontFamily.split(',')[0].replace(/["']/g, '').trim();
+    const sizePt = Math.round(parseFloat(style.fontSize) * 0.75 * 2) / 2;
+    const q = c => { try { return document.queryCommandState(c); } catch (e) { return false; } };
+    post({
+      type: 'state',
+      font: family,
+      size: pendingSizePt !== null ? pendingSizePt : sizePt,
+      bold: q('bold'), italic: q('italic'), underline: q('underline'), strike: q('strikeThrough'),
+      bullets: q('insertUnorderedList'), numbers: q('insertOrderedList'),
+      align: q('justifyCenter') ? 'center' : q('justifyRight') ? 'right' : q('justifyFull') ? 'justify' : 'left',
+      canUndo: document.queryCommandEnabled('undo'), canRedo: document.queryCommandEnabled('redo')
+    });
+  }
+
+  document.addEventListener('selectionchange', scheduleState);
+  ed.addEventListener('input', () => { convertSizeMarks(); changed(); });
+
+  // Pasted screenshots become data: images (sent as inline attachments).
   ed.addEventListener('paste', e => {
     const items = (e.clipboardData || {}).items || [];
-    for (const it of items) {
-      if (it.type && it.type.indexOf('image/') === 0) {
+    for (const item of items) {
+      if (item.type && item.type.indexOf('image/') === 0) {
         e.preventDefault();
         const reader = new FileReader();
-        reader.onload = () => { document.execCommand('insertImage', false, reader.result); post('changed'); };
-        reader.readAsDataURL(it.getAsFile());
+        reader.onload = () => insertImage(reader.result);
+        reader.readAsDataURL(item.getAsFile());
         return;
       }
     }
   });
+
   // Files dropped onto the editor go to the attachment list instead of being opened.
   document.addEventListener('dragover', e => {
     if (e.dataTransfer && Array.from(e.dataTransfer.types).indexOf('Files') >= 0) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; }
   });
   document.addEventListener('drop', e => {
-    if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); post('filedrop'); }
+    if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); post({ type: 'filedrop' }); }
   });
+
+  applyBaseFont();
 </script>
 </body>
 </html>

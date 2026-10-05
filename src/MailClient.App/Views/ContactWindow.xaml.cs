@@ -6,6 +6,8 @@ namespace MailClient.App.Views;
 
 public partial class ContactWindow : Window
 {
+    private static readonly char[] AddressSeparators = [';', ',', ' '];
+
     private readonly Contact _c;
 
     public ContactWindow(Contact contact, bool isNew)
@@ -29,7 +31,7 @@ public partial class ContactWindow : Window
 
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
-        var emails = EmailBox.Text.Split(new[] { ';', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        var emails = EmailBox.Text.Split(AddressSeparators, StringSplitOptions.RemoveEmptyEntries).ToList();
         if (emails.Count > 3)
         {
             Dialogs.Error("Exchange позволяет хранить не более трёх адресов электронной почты у контакта.");

@@ -33,9 +33,9 @@ public static class WindowFactory
         return w.ShowDialog();
     }
 
-    public static void OpenCompose(ComposeViewModel vm)
+    public static void OpenCompose(ComposeViewModel vm, AppSettings settings)
     {
-        var w = new ComposeWindow(vm);
+        var w = new ComposeWindow(vm, settings);
         w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         w.Show();
         w.Activate();
@@ -61,8 +61,6 @@ public static class WindowFactory
         var w = new PromptWindow(title, label, initial);
         return ShowDialog(w) == true ? w.Value : null;
     }
-
-    public static bool? EditEvent(CalendarEvent evt) => ShowDialog(new EventWindow(evt));
 
     public static bool? EditContact(Contact contact, bool isNew) => ShowDialog(new ContactWindow(contact, isNew));
 

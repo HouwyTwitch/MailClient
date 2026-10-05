@@ -1,0 +1,192 @@
+# Structure of the EWS requests this client sends (operations, SOAP headers and everything inside them).
+# The tests check every request against these rules, so a wrong element order, a missing required part
+# or a misspelled value is caught before a real Exchange server rejects it with ErrorSchemaValidation.
+#
+#   Name = A! B (C | D)* E   children in protocol order; ! required, * repeatable, (C | D) alternatives in one place
+#   Name : text              leaf element and its content: text, boolean, integer, datetime, base64, proptag,
+#   Name : v1 | v2              or the allowed values
+#   Name =                   empty element (attributes only)
+#     @Attr! : …             attribute (! required) and its content, same notation
+#   Parent/Name              rule for Name inside Parent only (that name has another structure elsewhere)
+#
+# Only what the client uses is listed: anything else is reported, so a request that gains a new element,
+# attribute or value needs a matching line here (in the position the EWS protocol defines for it).
+
+m:AttachmentIds = t:AttachmentId!*
+m:AttachmentShape = t:IncludeMimeContent t:BodyType t:AdditionalProperties
+m:CopyItem = m:ToFolderId! m:ItemIds! m:ReturnNewItemIds
+m:CreateFolder = m:ParentFolderId! m:Folders!
+m:CreateItem = m:SavedItemFolderId m:Items!
+  @MessageDisposition : SaveOnly | SendAndSaveCopy | SendOnly
+m:DeleteFolder = m:FolderIds!
+  @DeleteType! : HardDelete | MoveToDeletedItems
+m:DeleteItem = m:ItemIds!
+  @AffectedTaskOccurrences : AllOccurrences
+  @DeleteType! : HardDelete | MoveToDeletedItems
+  @SendMeetingCancellations : SendToNone
+m:EmptyFolder = m:FolderIds!
+  @DeleteSubFolders! : boolean
+  @DeleteType! : HardDelete | MoveToDeletedItems
+m:FindItem = m:ItemShape! m:IndexedPageItemView m:Restriction m:SortOrder m:ParentFolderIds! m:QueryString
+  @Traversal! : Shallow
+m:FolderChanges = t:FolderChange!*
+m:FolderIds = (t:FolderId | t:DistinguishedFolderId)!*
+m:FolderIds/t:DistinguishedFolderId = t:Mailbox
+  @ChangeKey : text
+  @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+m:FolderShape = t:BaseShape! t:AdditionalProperties
+m:Folders = t:Folder!*
+m:GetAttachment = m:AttachmentShape m:AttachmentIds!
+m:GetFolder = m:FolderShape! m:FolderIds!
+m:GetItem = m:ItemShape! m:ItemIds!
+m:GetUserOofSettingsRequest = t:Mailbox!
+m:GetUserOofSettingsRequest/t:Mailbox = t:Name t:Address!
+m:IndexedPageItemView = 
+  @BasePoint! : Beginning | End
+  @MaxEntriesReturned : integer
+  @Offset! : integer
+m:ItemChanges = t:ItemChange!*
+m:ItemIds = t:ItemId!*
+m:ItemShape = t:BaseShape! t:IncludeMimeContent t:BodyType t:AdditionalProperties
+m:Items = (t:Message | t:Contact | t:AcceptItem | t:TentativelyAcceptItem | t:DeclineItem)!*
+m:Items/t:Message = t:MimeContent t:ItemId t:Body t:Categories t:ExtendedProperty* t:Flag t:BccRecipients t:IsDeliveryReceiptRequested t:InternetMessageId t:IsRead
+m:MarkAllItemsAsRead = m:ReadFlag! m:SuppressReadReceipts! m:FolderIds!
+m:MarkAsJunk = m:ItemIds!
+  @IsJunk! : boolean
+  @MoveItem! : boolean
+m:MaxChangesReturned : integer
+m:MoveFolder = m:ToFolderId! m:FolderIds!
+m:MoveItem = m:ToFolderId! m:ItemIds! m:ReturnNewItemIds
+m:ParentFolderId = (t:FolderId | t:DistinguishedFolderId)!
+m:ParentFolderId/t:DistinguishedFolderId = t:Mailbox
+  @ChangeKey : text
+  @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+m:ParentFolderIds = (t:FolderId | t:DistinguishedFolderId)!*
+m:ParentFolderIds/t:DistinguishedFolderId = t:Mailbox
+  @ChangeKey : text
+  @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+m:QueryString : text
+m:ReadFlag : boolean
+m:ResolveNames = m:ParentFolderIds m:UnresolvedEntry!
+  @ReturnFullContactData! : boolean
+  @SearchScope : ActiveDirectoryContacts | Contacts
+m:Restriction = (t:Contains | t:Or)!*
+m:ReturnNewItemIds : boolean
+m:SavedItemFolderId = (t:FolderId | t:DistinguishedFolderId)!
+m:SavedItemFolderId/t:DistinguishedFolderId = t:Mailbox
+  @ChangeKey : text
+  @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+m:SetUserOofSettingsRequest = t:Mailbox! t:UserOofSettings!
+m:SetUserOofSettingsRequest/t:Mailbox = t:Name t:Address!
+m:SortOrder = t:FieldOrder!*
+m:SuppressReadReceipts : boolean
+m:SyncFolderHierarchy = m:FolderShape! m:SyncFolderId m:SyncState
+m:SyncFolderId = (t:FolderId | t:DistinguishedFolderId)!
+m:SyncFolderId/t:DistinguishedFolderId = t:Mailbox
+  @ChangeKey : text
+  @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+m:SyncFolderItems = m:ItemShape! m:SyncFolderId! m:SyncState m:MaxChangesReturned!
+m:SyncState : text
+m:ToFolderId = (t:FolderId | t:DistinguishedFolderId)!
+m:ToFolderId/t:DistinguishedFolderId = t:Mailbox
+  @ChangeKey : text
+  @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+m:UnresolvedEntry : text
+m:UpdateFolder = m:FolderChanges!
+m:UpdateItem = m:SavedItemFolderId m:ItemChanges!
+  @ConflictResolution! : AlwaysOverwrite
+  @MessageDisposition : SaveOnly | SendAndSaveCopy | SendOnly
+t:AcceptItem = t:Body t:BccRecipients t:IsDeliveryReceiptRequested t:ReferenceItemId
+t:AdditionalProperties = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!*
+t:Address : text
+t:AttachmentId = 
+  @Id! : text
+t:BaseShape : AllProperties | IdOnly
+t:BccRecipients = t:Mailbox*
+t:BccRecipients/t:Mailbox = t:Name t:EmailAddress t:ItemId
+t:Body : text
+  @BodyType! : HTML | Text
+t:BodyType : Best | HTML | Text
+t:Categories = t:String*
+t:CompanyName : text
+t:Constant = 
+  @Value! : text
+t:Contact = t:MimeContent t:ItemId t:Body t:Categories t:ExtendedProperty* t:Flag t:DisplayName t:GivenName t:CompanyName t:EmailAddresses t:PhoneNumbers t:Department t:JobTitle t:Surname
+t:Contains = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!* t:Constant!
+  @ContainmentComparison : IgnoreCase
+  @ContainmentMode : Substring
+t:DeclineItem = t:Body t:BccRecipients t:IsDeliveryReceiptRequested t:ReferenceItemId
+t:DeleteItemField = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!*
+t:Department : text
+t:DisplayName : text
+t:DistinguishedFolderId/t:Mailbox = t:Name t:EmailAddress t:ItemId
+t:Duration = t:StartTime! t:EndTime!
+t:EmailAddress : text
+t:EmailAddresses = t:Entry!*
+t:EmailAddresses/t:Entry : text
+  @Key! : EmailAddress1
+t:EndTime : datetime
+t:ExtendedFieldURI = 
+  @PropertyTag : proptag
+  @PropertyType! : Boolean | Error | Integer | String
+t:ExtendedProperty = t:ExtendedFieldURI! t:Value!
+t:ExternalAudience : All | Known | None
+t:ExternalReply = t:Message
+t:ExternalReply/t:Message : text
+t:FieldOrder = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!*
+  @Order! : Ascending | Descending
+t:FieldURI = 
+  @FieldURI! : contacts:CompanyName | contacts:Department | contacts:DisplayName | contacts:GivenName | contacts:JobTitle | contacts:Surname | folder:DisplayName | item:Body | item:Categories | item:ConversationId | item:DateTimeReceived | item:DateTimeSent | item:DisplayCc | item:DisplayTo | item:Flag | item:HasAttachments | item:Importance | item:ItemClass | item:Preview | item:Size | item:Subject | message:From | message:IsRead
+t:Flag = t:FlagStatus!
+t:FlagStatus : Complete | Flagged | NotFlagged
+t:Folder = t:FolderId t:FolderClass t:DisplayName t:ExtendedProperty* t:DistinguishedFolderId
+t:Folder/t:DistinguishedFolderId : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+t:FolderChange = (t:FolderId | t:DistinguishedFolderId)! t:Updates!
+t:FolderChange/t:DistinguishedFolderId = t:Mailbox
+  @ChangeKey : text
+  @Id! : contacts | deleteditems | drafts | inbox | junkemail | msgfolderroot | outbox | sentitems
+t:FolderChange/t:Updates = t:SetFolderField!*
+t:FolderClass : text
+t:FolderId = 
+  @ChangeKey : text
+  @Id! : text
+t:GivenName : text
+t:IncludeMimeContent : boolean
+t:IndexedFieldURI = 
+  @FieldIndex! : text
+  @FieldURI! : contacts:EmailAddress | contacts:PhoneNumber
+t:InternalReply = t:Message
+t:InternalReply/t:Message : text
+t:InternetMessageId : text
+t:IsDeliveryReceiptRequested : boolean
+t:IsRead : boolean
+t:ItemChange = t:ItemId! t:Updates!
+t:ItemChange/t:Updates = (t:SetItemField | t:DeleteItemField)!*
+t:ItemId = 
+  @ChangeKey : text
+  @Id! : text
+t:JobTitle : text
+t:MimeContent : text
+t:Name : text
+t:OofState : Disabled | Enabled | Scheduled
+t:Or = (t:Contains | t:Or)!*
+t:PhoneNumbers = t:Entry!*
+t:PhoneNumbers/t:Entry : text
+  @Key! : BusinessPhone | HomePhone | MobilePhone
+t:ReferenceItemId = 
+  @ChangeKey : text
+  @Id! : text
+t:RequestServerVersion = 
+  @Version! : Exchange2007_SP1 | Exchange2010_SP2 | Exchange2013 | Exchange2013_SP1 | Exchange2016
+t:SetFolderField = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!* t:Folder!
+t:SetItemField = (t:FieldURI | t:IndexedFieldURI | t:ExtendedFieldURI)!* (t:Message | t:Contact)!
+t:SetItemField/t:Message = t:MimeContent t:ItemId t:Body t:Categories t:ExtendedProperty* t:Flag t:BccRecipients t:IsDeliveryReceiptRequested t:InternetMessageId t:IsRead
+t:StartTime : datetime
+t:String : text
+t:Surname : text
+t:TentativelyAcceptItem = t:Body t:BccRecipients t:IsDeliveryReceiptRequested t:ReferenceItemId
+t:TimeZoneContext = t:TimeZoneDefinition!
+t:TimeZoneDefinition = 
+  @Id : text
+t:UserOofSettings = t:OofState! t:ExternalAudience! t:Duration t:InternalReply t:ExternalReply
+t:Value : text

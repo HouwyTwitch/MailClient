@@ -1,7 +1,6 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using MailClient.Core.Models;
 using MailClient.Core.Services;
 
 namespace MailClient.App.Services;
@@ -61,8 +60,4 @@ public sealed class CredentialProvider : ICredentialProvider
     public void SetPassword(Guid accountId, string password) => _store.Save(PasswordKey(accountId), password);
 
     public void DeletePassword(Guid accountId) => _store.Delete(PasswordKey(accountId));
-
-    public Task<string> GetAccessTokenAsync(AccountSettings account, bool forceRefresh, CancellationToken ct) =>
-        throw new MailServiceException("Вход через OAuth (Microsoft Entra ID) в этой сборке не поддерживается. " +
-                                       "Используйте вход по паролю или единый вход Windows.");
 }

@@ -18,7 +18,7 @@ public sealed class AutodiscoverResult
 }
 
 /// <summary>
-/// Exchange "POX" Autodiscover (autodiscover.xml), as used by Outlook and Evolution, to find the EWS URL
+/// Exchange "POX" Autodiscover (autodiscover.xml), the method Outlook uses, to find the EWS URL
 /// from an e-mail address. Tries the standard endpoints and follows redirectAddr/redirectUrl and the
 /// HTTP-redirect method (only to HTTPS targets).
 /// </summary>
@@ -44,6 +44,9 @@ public sealed class AutodiscoverClient
     /// <summary>Log of attempted URLs and outcomes, useful for troubleshooting in the UI.</summary>
     public List<string> Log { get; } = new();
 
+    /// <summary>Explanation of the first 401 seen, reported if no endpoint succeeds.</summary>
+    public string? LastAuthFailure { get; private set; }
+
     public async Task<AutodiscoverResult> DiscoverAsync(string emailAddress, CancellationToken ct = default)
     {
         using var client = _clientFactory();
@@ -68,6 +71,9 @@ public sealed class AutodiscoverClient
             {
                 var outcome = await TryEndpointAsync(client, url, email, 0, ct).ConfigureAwait(false);
                 if (outcome.Result != null) return outcome.Result;
+                // One login attempt: once a server has rejected our credentials, they are not sent
+                // to further addresses — repeated failed logins lock the domain account.
+                if (outcome.LoginRejected) throw new MailAuthenticationException(LastAuthFailure!);
                 if (outcome.RedirectAddress != null)
                 {
                     nextEmail = outcome.RedirectAddress;
@@ -75,15 +81,17 @@ public sealed class AutodiscoverClient
                 }
             }
             if (nextEmail == null) break;
+
             Log.Add($"Redirected to address {nextEmail}");
             email = nextEmail;
         }
+        if (LastAuthFailure != null) throw new MailAuthenticationException(LastAuthFailure);
         throw new MailServiceException(
             "Не удалось автоматически найти сервер Exchange для этого адреса. Укажите адрес EWS вручную " +
             "(обычно https://mail.<ваш-домен>/EWS/Exchange.asmx) или уточните его у администратора.", "AutodiscoverFailed");
     }
 
-    private sealed record Outcome(AutodiscoverResult? Result, string? RedirectAddress);
+    private sealed record Outcome(AutodiscoverResult? Result, string? RedirectAddress, bool LoginRejected = false);
 
     private async Task<Outcome> TryEndpointAsync(HttpClient client, string url, string email, int depth, CancellationToken ct)
     {
@@ -110,8 +118,13 @@ public sealed class AutodiscoverClient
             }
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                Log.Add($"{url} → 401 Unauthorized");
-                throw new MailAuthenticationException($"Сервер автообнаружения {new Uri(url).Host} отклонил имя пользователя или пароль.");
+                // Credentials sent and rejected: stop. A 401 without our credentials having been tried (e.g. an
+                // unrelated web site at https://domain/ asking for another scheme) lets the next endpoint be tried.
+                bool credentialsSent = request.Headers.Authorization != null;
+                Log.Add($"{url} → 401 Unauthorized ({string.Join(", ", response.Headers.WwwAuthenticate.Select(h => h.Scheme))})" +
+                        (credentialsSent ? ", login rejected" : ""));
+                LastAuthFailure ??= Http.ExchangeHttp.DescribeAuthFailure(response);
+                return new Outcome(null, null, credentialsSent);
             }
             if (!response.IsSuccessStatusCode)
             {
@@ -142,10 +155,6 @@ public sealed class AutodiscoverClient
             if (parsed.RedirectAddress != null) return new Outcome(null, parsed.RedirectAddress);
             Log.Add($"{url} → {parsed.Error ?? "no EWS settings in response"}");
             return new Outcome(null, null);
-        }
-        catch (MailAuthenticationException)
-        {
-            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException)
         {

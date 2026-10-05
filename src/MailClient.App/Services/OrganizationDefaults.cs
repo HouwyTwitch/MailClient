@@ -17,6 +17,8 @@ namespace MailClient.App.Services;
 /// </remarks>
 public sealed class OrganizationDefaults
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     public string EwsUrl { get; set; } = "";
     public string Domain { get; set; } = "";
     public string EmailDomain { get; set; } = "";
@@ -24,6 +26,12 @@ public sealed class OrganizationDefaults
     public string ServerVersion { get; set; } = "";
     public string TrustedRootCertificateFile { get; set; } = "";
     public bool LockServerSettings { get; set; }
+    /// <summary>Exchange (default) or Imap.</summary>
+    public string Protocol { get; set; } = "";
+    public string ImapHost { get; set; } = "";
+    public int ImapPort { get; set; }
+    public string SmtpHost { get; set; } = "";
+    public int SmtpPort { get; set; }
 
     private const string PolicyKey = @"SOFTWARE\Policies\MailClient";
 
@@ -34,8 +42,7 @@ public sealed class OrganizationDefaults
         {
             var file = Path.Combine(AppContext.BaseDirectory, "organization.json");
             if (File.Exists(file))
-                d = JsonSerializer.Deserialize<OrganizationDefaults>(File.ReadAllText(file),
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? d;
+                d = JsonSerializer.Deserialize<OrganizationDefaults>(File.ReadAllText(file), JsonOptions) ?? d;
         }
         catch (Exception ex)
         {
@@ -55,6 +62,11 @@ public sealed class OrganizationDefaults
                 d.ServerVersion = key.GetValue("ServerVersion") as string ?? d.ServerVersion;
                 d.TrustedRootCertificateFile = key.GetValue("TrustedRootCertificateFile") as string ?? d.TrustedRootCertificateFile;
                 if (key.GetValue("LockServerSettings") is int lockValue) d.LockServerSettings = lockValue != 0;
+                d.Protocol = key.GetValue("Protocol") as string ?? d.Protocol;
+                d.ImapHost = key.GetValue("ImapHost") as string ?? d.ImapHost;
+                if (key.GetValue("ImapPort") is int imapPort) d.ImapPort = imapPort;
+                d.SmtpHost = key.GetValue("SmtpHost") as string ?? d.SmtpHost;
+                if (key.GetValue("SmtpPort") is int smtpPort) d.SmtpPort = smtpPort;
             }
             catch (Exception ex)
             {
@@ -70,6 +82,19 @@ public sealed class OrganizationDefaults
         if (!string.IsNullOrWhiteSpace(Domain)) a.Domain = Domain;
         if (Enum.TryParse<AuthMethod>(AuthMethod, true, out var am)) a.AuthMethod = am;
         if (Enum.TryParse<ExchangeServerVersion>(ServerVersion, true, out var sv)) a.ServerVersion = sv;
+        if (Enum.TryParse<MailProtocol>(Protocol, true, out var protocol)) a.Protocol = protocol;
+        if (!string.IsNullOrWhiteSpace(ImapHost)) a.ImapHost = ImapHost;
+        if (ImapPort > 0)
+        {
+            a.ImapPort = ImapPort;
+            a.ImapSecurity = ImapPort == 993 ? ConnectionSecurity.SslOnConnect : ConnectionSecurity.StartTls;
+        }
+        if (!string.IsNullOrWhiteSpace(SmtpHost)) a.SmtpHost = SmtpHost;
+        if (SmtpPort > 0)
+        {
+            a.SmtpPort = SmtpPort;
+            a.SmtpSecurity = SmtpPort == 465 ? ConnectionSecurity.SslOnConnect : ConnectionSecurity.StartTls;
+        }
         if (!string.IsNullOrWhiteSpace(TrustedRootCertificateFile))
         {
             try { a.TrustedRootCertificatesPem = CertificateImport.ToPem(File.ReadAllBytes(TrustedRootCertificateFile)); }

@@ -37,6 +37,20 @@ public static class RuText
     public static string FullDate(DateTimeOffset date) =>
         date.ToLocalTime().ToString("dddd, d MMMM yyyy г., HH:mm", Culture);
 
+    private static readonly char[] NameSeparators = [' ', '.', '@'];
+
+    /// <summary>One or two capital letters for an avatar ("Иванов Иван" → "ИИ"); "?" when there is no name.</summary>
+    public static string Initials(string name)
+    {
+        var parts = name.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            0 => "?",
+            1 => parts[0][..1].ToUpperInvariant(),
+            _ => (parts[0][..1] + parts[1][..1]).ToUpperInvariant(),
+        };
+    }
+
     public static string Size(long bytes)
     {
         if (bytes < 1024) return $"{bytes} Б";
@@ -54,23 +68,20 @@ public static class RuText
         WellKnownFolder.JunkEmail => "Нежелательная почта",
         WellKnownFolder.Outbox => "Исходящие",
         WellKnownFolder.Archive => "Архив",
-        WellKnownFolder.Calendar => "Календарь",
         WellKnownFolder.Contacts => "Контакты",
-        WellKnownFolder.Tasks => "Задачи",
-        WellKnownFolder.Notes => "Заметки",
         _ => f.DisplayName,
     };
 
     public static string FolderIcon(MailFolder f) => f.WellKnown switch
     {
-        WellKnownFolder.Inbox => "",
-        WellKnownFolder.Drafts => "",
-        WellKnownFolder.SentItems => "",
-        WellKnownFolder.DeletedItems => "",
-        WellKnownFolder.JunkEmail => "",
-        WellKnownFolder.Outbox => "",
-        WellKnownFolder.Root => "",
-        _ => "",
+        WellKnownFolder.Inbox => "\uE715",
+        WellKnownFolder.Drafts => "\uE70F",
+        WellKnownFolder.SentItems => "\uE724",
+        WellKnownFolder.DeletedItems => "\uE74D",
+        WellKnownFolder.JunkEmail => "\uE7BA",
+        WellKnownFolder.Outbox => "\uE898",
+        WellKnownFolder.Root => "\uE77B",
+        _ => "\uE8B7",
     };
 
     public static int FolderOrder(MailFolder f) => f.WellKnown switch
@@ -104,16 +115,6 @@ public static class RuText
         ResponseStatus.Decline => "Отклонено",
         ResponseStatus.Organizer => "Вы организатор",
         ResponseStatus.NoResponseReceived => "Ответ не отправлен",
-        _ => "",
-    };
-
-    public static string TaskStatusText(TaskItemStatus s) => s switch
-    {
-        TaskItemStatus.NotStarted => "Не начата",
-        TaskItemStatus.InProgress => "Выполняется",
-        TaskItemStatus.Completed => "Завершена",
-        TaskItemStatus.WaitingOnOthers => "Ожидает других",
-        TaskItemStatus.Deferred => "Отложена",
         _ => "",
     };
 

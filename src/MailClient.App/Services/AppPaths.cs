@@ -25,10 +25,59 @@ public static class AppPaths
     {
         try
         {
+            // Pooled SQLite connections keep the database file open on Windows.
+            MailClient.Core.Storage.LocalCache.ReleaseFiles();
             var dir = Path.Combine(Local, "accounts", accountId.ToString("N"));
             if (Directory.Exists(dir)) Directory.Delete(dir, true);
         }
-        catch (IOException ex) { Log.Warn($"Не удалось удалить кэш учётной записи: {ex.Message}"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Не удалось удалить кэш учётной записи: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Removes copies of opened attachments (they may be confidential) and leftover preview files. Files still
+    /// open in another program are skipped and removed on a later start.
+    /// </summary>
+    public static void CleanupTemporaryFiles()
+    {
+        DeleteOlderThan(TempAttachments, TimeSpan.FromDays(1));
+        DeleteOlderThan(Preview, TimeSpan.FromHours(1));
+    }
+
+    private static void DeleteOlderThan(string dir, TimeSpan age)
+    {
+        var limit = DateTime.UtcNow - age;
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(file) < limit) File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // In use (e.g. a document still open in Word): next time.
+                }
+            }
+            foreach (var sub in Directory.EnumerateDirectories(dir))
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(sub).Any()) Directory.Delete(sub);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Not empty or in use.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Временные файлы в {dir} не очищены: {ex.Message}");
+        }
     }
 
     private static string Ensure(string path)

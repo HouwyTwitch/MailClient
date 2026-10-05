@@ -11,6 +11,7 @@
             </ResourceDictionary.MergedDictionaries>
             <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
             <conv:BoolToVisibilityConverter x:Key="InvBoolToVis" Invert="True"/>
+            <conv:InverseBooleanConverter x:Key="InvBool"/>
             <conv:UnreadWeightConverter x:Key="UnreadWeight"/>
             <conv:EnumEqualsConverter x:Key="EnumEquals"/>
             <conv:EnumToVisibilityConverter x:Key="EnumToVis"/>

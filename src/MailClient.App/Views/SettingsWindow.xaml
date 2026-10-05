@@ -12,7 +12,7 @@
         </Border>
         <StackPanel Margin="24,12,24,20">
             <TextBlock Text="Оформление" Style="{StaticResource SectionHeader}"/>
-            <ComboBox x:Name="ThemeCombo" Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="240">
+            <ComboBox x:Name="ThemeCombo" AutomationProperties.Name="Тема оформления" Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="240">
                 <ComboBoxItem Content="Как в Windows" Tag="System"/>
                 <ComboBoxItem Content="Светлая тема" Tag="Light"/>
                 <ComboBoxItem Content="Тёмная тема" Tag="Dark"/>
@@ -21,7 +21,7 @@
             <TextBlock Text="Чтение" Style="{StaticResource SectionHeader}"/>
             <DockPanel Margin="0,6,0,0">
                 <TextBlock Text="Отмечать письмо прочитанным через" VerticalAlignment="Center"/>
-                <ComboBox x:Name="ReadDelayCombo" Margin="8,0,0,0" MinWidth="140" HorizontalAlignment="Left">
+                <ComboBox x:Name="ReadDelayCombo" AutomationProperties.Name="Отмечать письмо прочитанным через" Margin="8,0,0,0" MinWidth="140" HorizontalAlignment="Left">
                     <ComboBoxItem Content="сразу" Tag="0"/>
                     <ComboBoxItem Content="2 секунды" Tag="2"/>
                     <ComboBoxItem Content="5 секунд" Tag="5"/>
@@ -32,6 +32,23 @@
             <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="22,0,0,0"
                        Text="Не рекомендуется: внешние изображения позволяют отправителю узнать, что письмо прочитано, и могут использоваться для фишинга."/>
             <CheckBox x:Name="ConfirmDeleteCheck" Content="Запрашивать подтверждение при удалении писем"/>
+
+            <TextBlock Text="Новые письма" Style="{StaticResource SectionHeader}"/>
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <TextBlock Text="Шрифт" VerticalAlignment="Center"/>
+                <ComboBox x:Name="FontCombo" Margin="8,0,0,0" Width="190" MaxDropDownHeight="360" AutomationProperties.Name="Шрифт новых писем">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" FontFamily="{Binding}"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="Размер" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                <ComboBox x:Name="SizeCombo" Margin="8,0,0,0" Width="72" MaxDropDownHeight="360" ItemStringFormat="{}{0:0.#}"
+                          AutomationProperties.Name="Размер шрифта новых писем"/>
+            </StackPanel>
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Шрифт сохраняется в письме, поэтому получатель увидит текст так же, как вы."/>
 
             <TextBlock Text="Уведомления и запуск" Style="{StaticResource SectionHeader}"/>
             <CheckBox x:Name="NotifyCheck" Content="Показывать уведомления о новых письмах"/>

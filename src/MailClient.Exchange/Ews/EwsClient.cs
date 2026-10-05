@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using MailClient.Core.Diagnostics;
 using MailClient.Core.Services;
 using static MailClient.Exchange.Ews.Ews;
 
@@ -36,33 +38,55 @@ public sealed class EwsResponseException : MailServiceException
 }
 
 /// <summary>
-/// Low-level EWS SOAP transport: wraps operations in an envelope, posts them, handles
-/// SOAP faults, HTTP errors and server throttling (ErrorServerBusy back-off).
+/// Low-level EWS SOAP transport: wraps operations in an envelope, posts them, handles SOAP faults, HTTP
+/// errors and server throttling: a limited number of requests in flight per account (Exchange throttles
+/// clients that open many parallel connections), one shared back-off for everybody when the server throttles (ErrorServerBusy),
+/// and transparent retries of read-only operations when a connection drops (proxies and load balancers
+/// in front of Exchange routinely close idle or long-running connections).
 /// </summary>
 public sealed class EwsClient : IDisposable
 {
+    private static readonly string[] VersionParts = ["MajorVersion", "MinorVersion", "MajorBuildNumber", "MinorBuildNumber"];
+
+    /// <summary>Operations that only read data and can be safely sent again after a network failure.</summary>
+    private static readonly HashSet<string> IdempotentOperations = new()
+    {
+        "GetFolder", "FindFolder", "SyncFolderHierarchy", "FindItem", "GetItem", "SyncFolderItems",
+        "GetAttachment", "ResolveNames", "GetUserOofSettingsRequest", "ExpandDL", "GetUserAvailabilityRequest",
+    };
+
     private readonly HttpClient _http;
     private readonly Uri _endpoint;
     private readonly string _version;
     private readonly int _maxRetries;
+    private readonly SemaphoreSlim _inFlight;
+    private readonly object _throttleSync = new();
+    private DateTime _pausedUntilUtc = DateTime.MinValue;
 
-    public EwsClient(HttpClient http, Uri endpoint, string requestServerVersion, int maxRetries = 3)
+    public EwsClient(HttpClient http, Uri endpoint, string requestServerVersion, int maxRetries = 3, int maxConcurrentRequests = 4)
     {
         _http = http;
         _endpoint = endpoint;
         _version = requestServerVersion;
         _maxRetries = maxRetries;
+        _inFlight = new SemaphoreSlim(maxConcurrentRequests, maxConcurrentRequests);
     }
 
     /// <summary>Server version reported in the last response header (e.g. "15.2.1544.4").</summary>
     public string? LastServerVersion { get; private set; }
 
+    /// <summary>Delay applied by the network retry (tests shorten it).</summary>
+    internal Func<int, TimeSpan> NetworkRetryDelay { get; set; } = attempt => TimeSpan.FromSeconds(attempt == 0 ? 1 : 4);
+
     /// <summary>Sends an operation and returns the operation response element (first child of soap:Body).</summary>
-    /// <param name="timeZoneId">Windows time zone id for a TimeZoneContext header (calendar operations).</param>
-    public async Task<XElement> SendAsync(XElement operation, CancellationToken ct, string? timeZoneId = null)
+    /// <param name="operation">The operation element (m:GetItem, m:CreateItem…).</param>
+    /// <param name="ct">Cancels the request, including retries and throttling pauses.</param>
+    /// <param name="timeZoneId">Windows time zone id for a TimeZoneContext header (meeting times).</param>
+    /// <param name="requestVersion">Overrides the RequestServerVersion for this call.</param>
+    public async Task<XElement> SendAsync(XElement operation, CancellationToken ct, string? timeZoneId = null, string? requestVersion = null)
     {
         var header = new XElement(Soap + "Header",
-            new XElement(T + "RequestServerVersion", new XAttribute("Version", _version)));
+            new XElement(T + "RequestServerVersion", new XAttribute("Version", requestVersion ?? _version)));
         if (!string.IsNullOrEmpty(timeZoneId))
         {
             header.Add(new XElement(T + "TimeZoneContext",
@@ -77,98 +101,167 @@ public sealed class EwsClient : IDisposable
                 header,
                 new XElement(Soap + "Body", operation)));
         var payload = Serialize(envelope);
+        var name = operation.Name.LocalName;
+        bool idempotent = IdempotentOperations.Contains(name);
 
-        for (int attempt = 0; ; attempt++)
+        int busyRetries = 0, networkRetries = 0;
+        while (true)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint)
-            {
-                Content = new ByteArrayContent(payload),
-            };
-            request.Content.Headers.TryAddWithoutValidation("Content-Type", "text/xml; charset=utf-8");
-            request.Headers.Accept.ParseAdd("text/xml");
-
-            HttpResponseMessage response;
+            await WaitWhileThrottledAsync(ct).ConfigureAwait(false);
+            await _inFlight.WaitAsync(ct).ConfigureAwait(false);
+            (XElement? result, TimeSpan? busy, Exception? network) outcome;
             try
             {
-                response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                outcome = await SendOnceAsync(name, payload, ct).ConfigureAwait(false);
             }
-            catch (HttpRequestException ex)
+            finally
             {
-                if (ex.InnerException is System.Security.Authentication.AuthenticationException)
-                    throw new MailConnectionException(
-                        $"Сертификат сервера {_endpoint.Host} не является доверенным. Если в организации используется " +
-                        "собственный удостоверяющий центр или «Russian Trusted Root CA», импортируйте корневой сертификат " +
-                        "в настройках учётной записи (раздел «Безопасность»).", ex);
-                throw new MailConnectionException($"Не удаётся подключиться к серверу Exchange {_endpoint.Host}: {ex.Message}", ex);
+                _inFlight.Release();
             }
-            catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+
+            if (outcome.result != null) return outcome.result;
+
+            if (outcome.busy is { } backoff)
             {
-                throw new MailConnectionException($"Сервер Exchange {_endpoint.Host} не ответил вовремя. Проверьте сетевое подключение или VPN.", ex);
+                if (busyRetries++ >= _maxRetries)
+                    throw new EwsResponseException("ErrorServerBusy", "Server busy");
+                // One shared pause for all requests of this account, not a stampede of retries.
+                PauseAll(backoff);
+                MailLog.Warn?.Invoke($"EWS {name}: сервер ограничивает частоту запросов (ErrorServerBusy), пауза {backoff.TotalSeconds:0.#} с");
+                continue;
             }
 
-            using (response)
+            var ex = outcome.network!;
+            if (idempotent && networkRetries < 2 && !ct.IsCancellationRequested)
             {
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                    throw new MailAuthenticationException("Сервер отклонил учётные данные (HTTP 401). Проверьте имя пользователя, пароль и способ входа.");
-                if (response.StatusCode == HttpStatusCode.Forbidden)
-                    throw new MailAuthenticationException("Доступ запрещён (HTTP 403). Возможно, для этого почтового ящика отключён доступ по EWS — обратитесь к администратору.");
-                if ((int)response.StatusCode is >= 300 and < 400)
-                    throw new MailConnectionException($"Сервер перенаправил запрос на {response.Headers.Location}. Воспользуйтесь автообнаружением или исправьте адрес EWS.");
-
-                var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                XDocument doc;
-                try
-                {
-                    doc = XDocument.Load(new MemoryStream(bytes));
-                }
-                catch (XmlException)
-                {
-                    if (response.StatusCode == HttpStatusCode.ServiceUnavailable && attempt < _maxRetries)
-                    {
-                        await Task.Delay(Backoff(attempt, null), ct).ConfigureAwait(false);
-                        continue;
-                    }
-                    throw new MailServiceException($"Непредвиденный ответ сервера (HTTP {(int)response.StatusCode} {response.ReasonPhrase}).", ((int)response.StatusCode).ToString());
-                }
-
-                var serverVersion = doc.Root?.Element(Soap + "Header")?.Element(T + "ServerVersionInfo");
-                if (serverVersion != null)
-                {
-                    LastServerVersion = string.Join(".",
-                        new[] { "MajorVersion", "MinorVersion", "MajorBuildNumber", "MinorBuildNumber" }
-                            .Select(a => serverVersion.Attribute(a)?.Value ?? "0"));
-                }
-
-                var body = doc.Root?.Element(Soap + "Body")
-                    ?? throw new MailServiceException("Некорректный ответ сервера (нет тела SOAP).");
-                var fault = body.Element(Soap + "Fault");
-                if (fault != null)
-                {
-                    var code = fault.Descendants(T + "ResponseCode").FirstOrDefault()?.Value
-                               ?? fault.Descendants().FirstOrDefault(e => e.Name.LocalName == "ResponseCode")?.Value
-                               ?? fault.Element("faultcode")?.Value ?? "SoapFault";
-                    var text = fault.Element("faultstring")?.Value ?? "SOAP fault";
-                    if (code == "ErrorServerBusy" && attempt < _maxRetries)
-                    {
-                        var backoff = fault.Descendants().FirstOrDefault(e =>
-                            e.Name.LocalName == "Value" && (string?)e.Attribute("Name") == "BackOffMilliseconds")?.Value;
-                        await Task.Delay(Backoff(attempt, backoff), ct).ConfigureAwait(false);
-                        continue;
-                    }
-                    throw new EwsResponseException(code, text);
-                }
-
-                var result = body.Elements().FirstOrDefault()
-                    ?? throw new MailServiceException("Некорректный ответ сервера (пустое тело SOAP).");
-
-                // Throttling can also surface as a response message error.
-                if (attempt < _maxRetries && result.Descendants(M + "ResponseCode").Any(c => c.Value == "ErrorServerBusy"))
-                {
-                    await Task.Delay(Backoff(attempt, null), ct).ConfigureAwait(false);
-                    continue;
-                }
-                return result;
+                MailLog.Warn?.Invoke($"EWS {name}: обрыв соединения, повтор {networkRetries + 1}/2: {MailLog.Describe(ex)}");
+                await Task.Delay(NetworkRetryDelay(networkRetries++), ct).ConfigureAwait(false);
+                continue;
             }
+            MailLog.Warn?.Invoke($"EWS {name}: ошибка сети: {MailLog.Describe(ex)}");
+            if (ex is HttpRequestException { InnerException: System.Security.Authentication.AuthenticationException })
+                throw new MailConnectionException(
+                    $"Сертификат сервера {_endpoint.Host} не является доверенным. Если в организации используется " +
+                    "собственный удостоверяющий центр или «Russian Trusted Root CA», импортируйте корневой сертификат " +
+                    "в настройках учётной записи (раздел «Безопасность»).", ex);
+            if (ex is TaskCanceledException or TimeoutException)
+                throw new MailConnectionException($"Сервер Exchange {_endpoint.Host} не ответил вовремя ({name}). Проверьте сетевое подключение или VPN.", ex);
+            throw new MailConnectionException($"Соединение с сервером Exchange {_endpoint.Host} прервано ({name}): {MailLog.Describe(ex)}", ex);
+        }
+    }
+
+    private async Task WaitWhileThrottledAsync(CancellationToken ct)
+    {
+        TimeSpan wait;
+        lock (_throttleSync) wait = _pausedUntilUtc - DateTime.UtcNow;
+        if (wait > TimeSpan.Zero) await Task.Delay(wait, ct).ConfigureAwait(false);
+    }
+
+    private void PauseAll(TimeSpan backoff)
+    {
+        lock (_throttleSync)
+        {
+            var until = DateTime.UtcNow + backoff;
+            if (until > _pausedUntilUtc) _pausedUntilUtc = until;
+        }
+    }
+
+    /// <summary>
+    /// One HTTP round trip. Returns the operation response, or a server-busy back-off, or a network failure
+    /// (including a connection dropped while the response body was being read).
+    /// </summary>
+    private async Task<(XElement? result, TimeSpan? busy, Exception? network)> SendOnceAsync(string name, byte[] payload, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = new ByteArrayContent(payload) };
+        request.Content.Headers.TryAddWithoutValidation("Content-Type", "text/xml; charset=utf-8");
+        request.Headers.Accept.ParseAdd("text/xml");
+
+        HttpResponseMessage response;
+        byte[] bytes;
+        try
+        {
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+        {
+            return (null, null, ex);
+        }
+
+        using (response)
+        {
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                MailLog.Warn?.Invoke($"EWS {name}: HTTP 401, сервер предлагает: {string.Join(", ", response.Headers.WwwAuthenticate.Select(h => h.Scheme))}");
+                throw new MailAuthenticationException(Http.ExchangeHttp.DescribeAuthFailure(response));
+            }
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+                throw new MailAuthenticationException("Доступ запрещён (HTTP 403). Возможно, для этого почтового ящика отключён доступ по EWS — обратитесь к администратору.");
+            if ((int)response.StatusCode is >= 300 and < 400)
+                throw new MailConnectionException($"Сервер перенаправил запрос на {response.Headers.Location}. Воспользуйтесь автообнаружением или исправьте адрес EWS.");
+
+            try
+            {
+                bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+            {
+                return (null, null, ex); // connection cut while reading the body
+            }
+
+            XDocument doc;
+            try
+            {
+                doc = XDocument.Load(new MemoryStream(bytes));
+            }
+            catch (XmlException)
+            {
+                if (response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout)
+                    return (null, null, new HttpRequestException($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}"));
+                MailLog.Warn?.Invoke($"EWS {name}: ответ не XML, HTTP {(int)response.StatusCode}, {bytes.Length} байт");
+                throw new MailServiceException($"Непредвиденный ответ сервера (HTTP {(int)response.StatusCode} {response.ReasonPhrase}).", ((int)response.StatusCode).ToString(CultureInfo.InvariantCulture));
+            }
+
+            var serverVersion = doc.Root?.Element(Soap + "Header")?.Element(T + "ServerVersionInfo");
+            if (serverVersion != null)
+            {
+                LastServerVersion = string.Join(".", VersionParts.Select(a => serverVersion.Attribute(a)?.Value ?? "0"));
+            }
+
+            var body = doc.Root?.Element(Soap + "Body")
+                ?? throw new MailServiceException("Некорректный ответ сервера (нет тела SOAP).");
+            var fault = body.Element(Soap + "Fault");
+            if (fault != null)
+            {
+                var code = fault.Descendants(T + "ResponseCode").FirstOrDefault()?.Value
+                           ?? fault.Descendants().FirstOrDefault(e => e.Name.LocalName == "ResponseCode")?.Value
+                           ?? fault.Element("faultcode")?.Value ?? "SoapFault";
+                var text = fault.Element("faultstring")?.Value ?? "SOAP fault";
+                if (code.EndsWith("ErrorServerBusy", StringComparison.Ordinal))
+                {
+                    var hint = fault.Descendants().FirstOrDefault(e =>
+                        e.Name.LocalName == "Value" && (string?)e.Attribute("Name") == "BackOffMilliseconds")?.Value;
+                    return (null, Backoff(hint), null);
+                }
+                MailLog.Warn?.Invoke($"EWS {name}: SOAP fault {code}: {text}");
+                throw new EwsResponseException(code, text);
+            }
+
+            var result = body.Elements().FirstOrDefault()
+                ?? throw new MailServiceException("Некорректный ответ сервера (пустое тело SOAP).");
+
+            // Throttling can also surface as a response message error; honour the
+            // BackOffMilliseconds the server puts into MessageXml. When only part of a batch was throttled the
+            // rest has already been executed, so only idempotent operations may be repeated as a whole.
+            var codes = result.Descendants(M + "ResponseCode").ToList();
+            var busyCodes = codes.Where(c => c.Value == "ErrorServerBusy").ToList();
+            if (busyCodes.Count > 0 && (busyCodes.Count == codes.Count || IdempotentOperations.Contains(name)))
+            {
+                var hint = busyCodes.Select(c => c.Parent?.Element(M + "MessageXml")).Where(x => x != null)
+                    .SelectMany(x => x!.Descendants())
+                    .FirstOrDefault(e => e.Name.LocalName == "Value" && (string?)e.Attribute("Name") == "BackOffMilliseconds")?.Value;
+                return (null, Backoff(hint), null);
+            }
+            return (result, null, null);
         }
     }
 
@@ -193,11 +286,10 @@ public sealed class EwsClient : IDisposable
         throw new EwsResponseException(code, text);
     }
 
-    private static TimeSpan Backoff(int attempt, string? serverHintMs)
-    {
-        if (int.TryParse(serverHintMs, out var ms) && ms > 0) return TimeSpan.FromMilliseconds(Math.Min(ms, 60_000));
-        return TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-    }
+    private static TimeSpan Backoff(string? serverHintMs) =>
+        int.TryParse(serverHintMs, out var ms) && ms > 0
+            ? TimeSpan.FromMilliseconds(Math.Min(ms, 60_000))
+            : TimeSpan.FromSeconds(5);
 
     private static byte[] Serialize(XDocument doc)
     {

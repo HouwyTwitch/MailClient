@@ -10,7 +10,7 @@
             <Button Content="Отмена" IsCancel="True" MinWidth="90" Margin="8,0,0,0"/>
         </StackPanel>
         <Border Style="{StaticResource Card}" Padding="4">
-            <TreeView x:Name="Tree" MouseDoubleClick="Tree_MouseDoubleClick">
+            <TreeView x:Name="Tree" MouseDoubleClick="Tree_MouseDoubleClick" AutomationProperties.Name="Папки">
                 <TreeView.ItemContainerStyle>
                     <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                         <Setter Property="IsExpanded" Value="True"/>

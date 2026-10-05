@@ -12,7 +12,7 @@ namespace MailClient.App.Controls;
 /// Read-only message renderer on WebView2 with scripts disabled. All navigation is blocked; http(s)/mailto
 /// links open in the user's default browser/mail handler. Falls back to plain text if WebView2 is missing.
 /// </summary>
-public sealed class MessageBodyView : UserControl
+public sealed class MessageBodyView : UserControl, IDisposable
 {
     private const string VirtualHost = "preview.mailclient.local";
 
@@ -142,5 +142,12 @@ public sealed class MessageBodyView : UserControl
     {
         if (await EnsureInitializedAsync())
             _web.CoreWebView2.ShowPrintUI(CoreWebView2PrintDialogKind.Browser);
+    }
+
+    /// <summary>Releases the browser instance and the temporary file (called when the owning window closes).</summary>
+    public void Dispose()
+    {
+        CleanupFile();
+        _web.Dispose();
     }
 }

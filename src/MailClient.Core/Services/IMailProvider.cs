@@ -2,6 +2,19 @@ using MailClient.Core.Models;
 
 namespace MailClient.Core.Services;
 
+[Flags]
+public enum ProviderCapabilities
+{
+    None = 0,
+    Contacts = 2,
+    OutOfOffice = 8,
+    /// <summary>Organization address book (Global Address List).</summary>
+    Directory = 16,
+    /// <summary>Accept/decline meeting invitations received by mail.</summary>
+    MeetingResponses = 32,
+    All = Contacts | OutOfOffice | Directory | MeetingResponses,
+}
+
 /// <summary>
 /// Server protocol abstraction. The Exchange (EWS) implementation lives in MailClient.Exchange;
 /// other back-ends (e.g. Microsoft Graph) can be added by implementing this interface.
@@ -10,12 +23,15 @@ public interface IMailProvider : IDisposable
 {
     AccountSettings Account { get; }
 
+    /// <summary>Optional features this back-end supports; the UI hides the rest.</summary>
+    ProviderCapabilities Capabilities { get; }
+
     /// <summary>Verifies connectivity/credentials and returns basic mailbox information.</summary>
     Task<MailboxInfo> ConnectAsync(CancellationToken ct = default);
 
     // ---- Folders ----
     Task<IReadOnlyList<MailFolder>> GetFoldersAsync(CancellationToken ct = default);
-    Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, FolderKind kind = FolderKind.Mail, CancellationToken ct = default);
+    Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, CancellationToken ct = default);
     Task RenameFolderAsync(string folderId, string newName, CancellationToken ct = default);
     Task MoveFolderAsync(string folderId, string newParentFolderId, CancellationToken ct = default);
     Task DeleteFolderAsync(string folderId, bool permanent, CancellationToken ct = default);
@@ -37,6 +53,12 @@ public interface IMailProvider : IDisposable
     /// <summary>Moves items and returns their new ids (same order; null when the server did not return one).</summary>
     Task<IReadOnlyList<string?>> MoveItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default);
     Task<IReadOnlyList<string?>> CopyItemsAsync(IEnumerable<string> itemIds, string destinationFolderId, CancellationToken ct = default);
+    /// <summary>Marks every message of a folder read/unread on the server. Returns false when not supported.</summary>
+    Task<bool> MarkAllReadAsync(string folderId, bool isRead, CancellationToken ct = default);
+
+    /// <summary>Moves items to (or out of) the Junk folder, letting the server learn the sender. Returns new ids.</summary>
+    Task<IReadOnlyList<string?>> MarkAsJunkAsync(IEnumerable<string> itemIds, bool isJunk, CancellationToken ct = default);
+
     /// <summary>Deletes items. When <paramref name="permanent"/> is false they go to Deleted Items.</summary>
     Task DeleteItemsAsync(IEnumerable<string> itemIds, bool permanent, CancellationToken ct = default);
 
@@ -55,16 +77,8 @@ public interface IMailProvider : IDisposable
     Task<string> CreateContactAsync(Contact contact, string? folderId = null, CancellationToken ct = default);
     Task UpdateContactAsync(Contact contact, CancellationToken ct = default);
 
-    // ---- Calendar ----
-    Task<IReadOnlyList<CalendarEvent>> GetEventsAsync(DateTimeOffset start, DateTimeOffset end, string? folderId = null, CancellationToken ct = default);
-    Task<string> CreateEventAsync(CalendarEvent evt, string? folderId = null, CancellationToken ct = default);
-    Task CancelOrDeleteEventAsync(string itemId, bool isOrganizerOfMeeting, CancellationToken ct = default);
+    // ---- Meeting invitations (received by mail) ----
     Task RespondToMeetingAsync(string itemId, MeetingResponse response, string? comment = null, CancellationToken ct = default);
-
-    // ---- Tasks ----
-    Task<IReadOnlyList<TaskItem>> GetTasksAsync(string? folderId = null, CancellationToken ct = default);
-    Task<string> CreateTaskAsync(TaskItem task, string? folderId = null, CancellationToken ct = default);
-    Task SetTaskCompleteAsync(string itemId, bool complete, CancellationToken ct = default);
 
     // ---- Automatic replies ----
     Task<OofSettings> GetOutOfOfficeAsync(CancellationToken ct = default);

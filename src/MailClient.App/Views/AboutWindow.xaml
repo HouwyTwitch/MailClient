@@ -12,8 +12,12 @@
             </StackPanel>
         </StackPanel>
         <TextBlock TextWrapping="Wrap" Margin="0,16,0,0"
-                   Text="Почтовый клиент для Microsoft Exchange Server 2010 SP2 – Subscription Edition (протокол EWS): почта, папки, вложения, календарь, контакты, адресная книга организации, задачи и автоответы."/>
+                   Text="Почтовый клиент для Microsoft Exchange Server 2010 SP2 – Subscription Edition (протокол EWS) и почтовых серверов IMAP/SMTP: почта, папки, вложения, приглашения на встречи, контакты, адресная книга организации и автоответы."/>
         <TextBlock x:Name="PathsText" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"/>
-        <Button Content="Закрыть" IsCancel="True" IsDefault="True" HorizontalAlignment="Right" MinWidth="90" Margin="0,18,0,0"/>
+        <DockPanel Margin="0,18,0,0">
+            <Button Content="Закрыть" IsCancel="True" IsDefault="True" DockPanel.Dock="Right" MinWidth="90"/>
+            <Button x:Name="NoticesButton" Content="Сторонние компоненты" HorizontalAlignment="Left" Click="Notices_Click"
+                    ToolTip="Используемые библиотеки и их лицензии"/>
+        </DockPanel>
     </StackPanel>
 </Window>

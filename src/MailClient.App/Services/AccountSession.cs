@@ -1,7 +1,6 @@
 using MailClient.Core.Models;
 using MailClient.Core.Services;
 using MailClient.Core.Storage;
-using MailClient.Exchange.Ews;
 
 namespace MailClient.App.Services;
 
@@ -34,9 +33,15 @@ public sealed class AccountSession : IDisposable
     public AccountSession(AccountSettings settings, ICredentialProvider credentials)
     {
         Settings = settings;
-        Provider = new ExchangeProvider(settings, credentials);
+        Provider = ProviderFactory.Create(settings, credentials);
         Cache = new LocalCache(AppPaths.CacheFile(settings.Id));
         Sync = new SyncEngine(Provider, Cache);
+        Sync.SyncProgress += (_, p) =>
+        {
+            if (p.processed < 50) return;
+            var name = Cache.GetFolders().FirstOrDefault(f => f.Id == p.folderId) is { } f ? RuText.FolderName(f) : "папка";
+            SetStatus($"Синхронизация «{name}»: {RuText.Count(p.processed, "письмо", "письма", "писем")}…", true);
+        };
     }
 
     public string? InboxId => Cache.GetFolders().FirstOrDefault(f => f.WellKnown == WellKnownFolder.Inbox)?.Id;
@@ -96,18 +101,28 @@ public sealed class AccountSession : IDisposable
             catch (MailAuthenticationException ex)
             {
                 Log.Warn($"[{Settings.EmailAddress}] Ошибка входа: {ex.Message}");
-                SetStatus("Ошибка входа — проверьте пароль", false);
                 if (!_authErrorReported)
                 {
                     _authErrorReported = true;
                     AuthenticationFailed?.Invoke(this, EventArgs.Empty);
                 }
-                failures++;
+                // A rejected login is not retried on a timer — repeated failed logins lock the
+                // domain account. The next attempt happens only when the user asks (sync now, new password).
+                SetStatus("Ошибка входа — проверьте пароль (нажмите «Обновить» для повторной попытки)", false);
+                try
+                {
+                    await _wake.WaitAsync(ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                continue;
             }
             catch (Exception ex)
             {
                 failures++;
-                Log.Warn($"[{Settings.EmailAddress}] Ошибка синхронизации: {ex.Message}");
+                Log.Warn($"[{Settings.EmailAddress}] Ошибка синхронизации: {MailClient.Core.Diagnostics.MailLog.Describe(ex)}");
                 SetStatus(ex is MailConnectionException ? "Нет связи с сервером — автономный режим" : "Ошибка синхронизации: " + ex.Message, false);
             }
 

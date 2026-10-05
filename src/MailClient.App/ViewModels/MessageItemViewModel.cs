@@ -18,12 +18,14 @@ public sealed partial class MessageItemViewModel : ObservableObject
     public bool ShowRecipients { get; }
     public string Id => Summary.Id;
 
-    public string Correspondent => ShowRecipients
+    public string Correspondent => OneLine(ShowRecipients
         ? (string.IsNullOrWhiteSpace(Summary.DisplayTo) ? "(нет получателей)" : Summary.DisplayTo)
-        : Summary.From?.ShortName is { Length: > 0 } n ? n : "(без отправителя)";
+        : Summary.From?.ShortName is { Length: > 0 } n ? n : "(без отправителя)", 120);
 
-    public string Subject => string.IsNullOrWhiteSpace(Summary.Subject) ? "(без темы)" : Summary.Subject;
-    public string Preview => Summary.Preview;
+    public string Subject => string.IsNullOrWhiteSpace(Summary.Subject) ? "(без темы)" : OneLine(Summary.Subject, 200);
+    public string Preview => OneLine(Summary.Preview, 160);
+
+    private static string OneLine(string? text, int max) => MailClient.Core.Rendering.TextUtil.OneLine(text, max);
     public string DateText => RuText.ShortDate(Summary.DateReceived);
     public string DateTooltip => RuText.FullDate(Summary.DateReceived);
     public bool HasAttachments => Summary.HasAttachments;

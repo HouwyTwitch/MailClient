@@ -10,7 +10,7 @@ public static class CertificateImport
     {
         var text = Encoding.ASCII.GetString(fileContent);
         if (text.Contains("-----BEGIN CERTIFICATE-----")) return text.Trim();
-        using var cert = new X509Certificate2(fileContent);
+        using var cert = X509CertificateLoader.LoadCertificate(fileContent);
         return cert.ExportCertificatePem();
     }
 

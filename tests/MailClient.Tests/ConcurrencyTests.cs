@@ -4,7 +4,7 @@ using Xunit;
 
 namespace MailClient.Tests;
 
-public class ConcurrencyTests : IDisposable
+public sealed class ConcurrencyTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"mc-conc-{Guid.NewGuid():N}.db");
 
@@ -27,7 +27,7 @@ public class ConcurrencyTests : IDisposable
                 {
                     Id = $"{batch}-{i}", FolderId = "F", Subject = $"Письмо {i}", DateReceived = DateTimeOffset.UtcNow,
                 }));
-        });
+        }, TestContext.Current.CancellationToken);
         var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
         {
             for (int i = 0; i < 100; i++)

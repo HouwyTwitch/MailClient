@@ -168,7 +168,8 @@ public sealed partial class ComposeViewModel : ObservableObject
         var body = draft.BodyIsHtml ? draft.Body : MessageHtmlBuilder.TextToHtml(draft.Body);
         if (draft.Attachments.Count > 0)
         {
-            var files = await session.Provider.GetAttachmentsAsync(draft.Attachments.Where(a => !a.IsItemAttachment).Select(a => a.Id));
+            // Every attachment comes back, attached messages (.eml) included, so re-saving or sending loses nothing.
+            var files = await session.Provider.GetAttachmentsAsync(draft.Attachments.Select(a => a.Id));
             foreach (var f in files)
             {
                 // Inline images go back into the editor as data: URIs; they are re-extracted on send.
@@ -263,16 +264,29 @@ public sealed partial class ComposeViewModel : ObservableObject
     public async Task<IReadOnlyList<Contact>> SuggestAsync(string text, CancellationToken ct)
     {
         if (text.Trim().Length < 2) return Array.Empty<Contact>();
+        var result = new List<Contact>();
         try
         {
-            return (await SelectedSession.Provider.ResolveNamesAsync(text, ct))
-                .Where(c => c.PrimaryEmail.Length > 0).Take(12).ToList();
+            result.AddRange((await SelectedSession.Provider.ResolveNamesAsync(text, ct)).Where(c => c.PrimaryEmail.Length > 0));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // The user kept typing (or the window closed): a newer lookup supersedes this one.
+            if (ct.IsCancellationRequested) return Array.Empty<Contact>();
+        }
+        catch (Exception ex)
         {
             Log.Warn($"Поиск в адресной книге не удался: {ex.Message}");
-            return Array.Empty<Contact>();
         }
+        if (ct.IsCancellationRequested) return Array.Empty<Contact>();
+        // Plus people from the user's own correspondence (the only source for IMAP accounts).
+        var local = await Task.Run(() => SelectedSession.Cache.SuggestAddresses(text, 10));
+        foreach (var a in local)
+        {
+            if (result.Any(c => c.EmailAddresses.Contains(a.Address, StringComparer.OrdinalIgnoreCase))) continue;
+            result.Add(new Contact { DisplayName = a.ShortName, EmailAddresses = { a.Address } });
+        }
+        return result.Take(12).ToList();
     }
 
     /// <summary>
@@ -291,6 +305,9 @@ public sealed partial class ComposeViewModel : ObservableObject
             }
             var query = string.IsNullOrWhiteSpace(entry.Address) ? entry.Name : entry.Address;
             var matches = (await SelectedSession.Provider.ResolveNamesAsync(query)).Where(c => c.PrimaryEmail.Length > 0).ToList();
+            if (matches.Count == 0)
+                matches = SelectedSession.Cache.SuggestAddresses(query, 5)
+                    .Select(a => new Contact { DisplayName = a.ShortName, EmailAddresses = { a.Address } }).ToList();
             if (matches.Count == 1)
             {
                 result.Add(new EmailAddress(matches[0].DisplayName, matches[0].PrimaryEmail));
@@ -369,11 +386,9 @@ public sealed partial class ComposeViewModel : ObservableObject
         };
         if (isHtml)
         {
+            // The editor already wraps the text in the message font; pasted images become inline attachments.
             var (html, images) = InlineImageExtractor.Extract(body);
-            // Replies/forwards: the server merges this fragment with the quoted original, so send a fragment only.
-            message.Body = Action is ComposeAction.Reply or ComposeAction.ReplyAll or ComposeAction.Forward
-                ? $"<div style=\"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:11pt\">{html}</div>"
-                : $"<html><head><meta charset=\"utf-8\"></head><body style=\"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:11pt\">{html}</body></html>";
+            message.Body = html;
             message.Attachments.AddRange(images);
         }
         else

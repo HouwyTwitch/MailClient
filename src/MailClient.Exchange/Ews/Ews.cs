@@ -45,7 +45,6 @@ internal static class Ews
             ? default
             : DateTimeOffset.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
-    public static DateTimeOffset? ParseDateOrNull(string? s) => string.IsNullOrEmpty(s) ? null : ParseDate(s);
 
     public static bool ParseBool(string? s) => string.Equals(s, "true", StringComparison.OrdinalIgnoreCase);
 
@@ -76,9 +75,6 @@ internal static class Ews
             ["deleteditems"] = Core.Models.WellKnownFolder.DeletedItems,
             ["junkemail"] = Core.Models.WellKnownFolder.JunkEmail,
             ["outbox"] = Core.Models.WellKnownFolder.Outbox,
-            ["calendar"] = Core.Models.WellKnownFolder.Calendar,
             ["contacts"] = Core.Models.WellKnownFolder.Contacts,
-            ["tasks"] = Core.Models.WellKnownFolder.Tasks,
-            ["notes"] = Core.Models.WellKnownFolder.Notes,
         };
 }

@@ -3,7 +3,16 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Microsoft's recommended code-quality analyzers; any warning fails the build. -->
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Code-style rules from .editorconfig (dead code) run in the build; they need the XML documentation pass,
+         but documenting every public member is not required. -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Symbols inside the assemblies: line numbers in logged stack traces, no separate .pdb files to ship. -->
+    <DebugType>embedded</DebugType>
     <Version>0.1.0</Version>
     <Company>MailClient</Company>
     <Product>MailClient</Product>
