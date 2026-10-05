@@ -57,12 +57,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private FolderNodeViewModel? _selectedFolder;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasSelection))]
+    [NotifyPropertyChangedFor(nameof(HasSelection), nameof(CanRespond))]
     private MessageItemViewModel? _selectedMessage;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasPreview))]
+    [NotifyPropertyChangedFor(nameof(HasPreview), nameof(ShowPreview), nameof(ShowEmptyHint))]
     private MessagePreviewViewModel? _preview;
+
+    /// <summary>Number of selected messages; above one the reading pane shows the bulk actions instead of a message.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMultiSelection), nameof(MultiSelectionText), nameof(CanRespond), nameof(ShowPreview), nameof(ShowEmptyHint))]
+    private int _selectionCount;
 
     [ObservableProperty] private bool _isPreviewLoading;
     [ObservableProperty] private string _searchText = "";
@@ -74,6 +79,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _windowTitle = "Корпоративная почта";
 
     public bool HasSelection => SelectedMessage != null;
+    public bool IsMultiSelection => SelectionCount > 1;
+    public string MultiSelectionText => "Выбрано " + RuText.Count(SelectionCount, "письмо", "письма", "писем");
+    /// <summary>Reply/forward act on one message.</summary>
+    public bool CanRespond => HasSelection && !IsMultiSelection;
+    public bool ShowPreview => HasPreview && !IsMultiSelection;
+    public bool ShowEmptyHint => !HasPreview && !IsMultiSelection;
 
     private ProviderCapabilities Caps => CurrentSession?.Provider.Capabilities ?? ProviderCapabilities.All;
     public bool SupportsContacts => Caps.HasFlag(ProviderCapabilities.Contacts);
@@ -449,7 +460,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             var preview = await MessagePreviewViewModel.LoadAsync(session, _sessions, _settings, item.Id, ct);
             if (ct.IsCancellationRequested) return;
             Preview = preview;
-            if (!item.IsRead && _settings.MarkAsReadDelaySeconds >= 0)
+            if (!item.IsRead && _settings.MarkAsReadDelaySeconds >= 0 && !IsMultiSelection)
             {
                 _markReadTimer.Interval = TimeSpan.FromSeconds(Math.Max(0.05, _settings.MarkAsReadDelaySeconds));
                 _markReadTimer.Start();
@@ -468,6 +479,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (!ct.IsCancellationRequested) IsPreviewLoading = false;
         }
+    }
+
+    /// <summary>Called by the view whenever the list selection changes.</summary>
+    public void SetSelection(IEnumerable<MessageItemViewModel> items)
+    {
+        SelectedMessages.Clear();
+        SelectedMessages.AddRange(items);
+        SelectionCount = SelectedMessages.Count;
+        // Selecting a range must not mark its first message read.
+        if (IsMultiSelection) _markReadTimer.Stop();
     }
 
     private async Task MarkCurrentAsReadAsync()
@@ -650,7 +671,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         if (copy)
         {
-            await RunAsync("Не удалось скопировать письма", () => folder.Session.Provider.CopyItemsAsync(items.Select(i => i.Id), target.Id));
+            await RunAsync("Не удалось скопировать письма", async () =>
+            {
+                await folder.Session.Provider.CopyItemsAsync(items.Select(i => i.Id), target.Id);
+                target.Unread += items.Count(i => !i.IsRead);
+                StatusText = $"Скопировано: {RuText.Count(items.Count, "письмо", "письма", "писем")} → «{target.Name}»";
+            });
             return;
         }
         await MoveItemsToAsync(items, folder, target.Id);
@@ -703,7 +729,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var session = SelectedFolder?.Session;
         var item = SelectedMessage;
-        if (session == null || item == null) return;
+        if (session == null || item == null || IsMultiSelection) return;
         try
         {
             var message = Preview?.Message.Id == item.Id ? Preview.Message : await session.Sync.GetMessageAsync(item.Id);
