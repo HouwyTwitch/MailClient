@@ -66,6 +66,8 @@ public static class WindowFactory
 
     public static void OutOfOffice(AccountSession session) => ShowDialog(new OofWindow(session));
 
+    public static void ForwardingRules(AccountSession session) => ShowDialog(new RulesWindow(session));
+
     public static bool? EditSettings(AppSettings settings) => ShowDialog(new SettingsWindow(settings));
 
     public static void About() => ShowDialog(new AboutWindow());

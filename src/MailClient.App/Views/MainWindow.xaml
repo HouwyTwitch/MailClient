@@ -46,6 +46,9 @@
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE709;" ToolTip="Автоответ (нет на месте)" HorizontalAlignment="Center"
                             Visibility="{Binding SupportsOutOfOffice, Converter={StaticResource BoolToVis}}"
                             Command="{Binding OpenOutOfOfficeCommand}"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE89C;" ToolTip="Правила пересылки" HorizontalAlignment="Center"
+                            Visibility="{Binding SupportsForwardingRules, Converter={StaticResource BoolToVis}}"
+                            Command="{Binding OpenForwardingRulesCommand}"/>
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE713;" ToolTip="Параметры" HorizontalAlignment="Center" Click="SettingsButton_Click">
                         <Button.ContextMenu>
                             <ContextMenu>
@@ -56,6 +59,7 @@
                                 <MenuItem Header="Удалить учётную запись…" Command="{Binding RemoveCurrentAccountCommand}"/>
                                 <Separator/>
                                 <MenuItem Header="Автоответ (нет на месте)…" Command="{Binding OpenOutOfOfficeCommand}"/>
+                                <MenuItem Header="Правила пересылки…" Command="{Binding OpenForwardingRulesCommand}"/>
                                 <MenuItem Header="Открыть папку журналов" Command="{Binding OpenLogsCommand}"/>
                                 <MenuItem Header="Сохранить отчёт для техподдержки…" Command="{Binding SaveSupportBundleCommand}"/>
                                 <MenuItem Header="О программе" Command="{Binding ShowAboutCommand}"/>

@@ -1,0 +1,42 @@
+<Window x:Class="MailClient.App.Views.RuleEditWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource AppWindow}" Title="Правило пересылки" Icon="/Assets/app.ico"
+        Width="560" Height="680" MinWidth="460" MinHeight="480" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.SurfaceAlt}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="20,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="ОК" Style="{StaticResource AccentButton}" IsDefault="True" MinWidth="110" Click="Ok_Click"/>
+                <Button Content="Отмена" IsCancel="True" MinWidth="90" Margin="8,0,0,0"/>
+            </StackPanel>
+        </Border>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,16">
+                <TextBlock Text="Название" Style="{StaticResource FieldLabel}" Margin="0,0,0,4"/>
+                <TextBox x:Name="NameBox" AutomationProperties.Name="Название правила"/>
+
+                <TextBlock Text="Условия" Style="{StaticResource SectionHeader}"/>
+                <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"
+                           Text="Несколько значений разделяйте точкой с запятой — подойдёт любое из них. Если оставить все поля пустыми, правило сработает для каждого входящего письма."/>
+                <TextBlock Text="Отправитель (адреса)" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="FromBox" AutomationProperties.Name="Отправитель (адреса)" ToolTip="Например: bank@bank.ru; info@partner.ru"/>
+                <TextBlock Text="Тема содержит" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="SubjectBox" AutomationProperties.Name="Тема содержит" ToolTip="Например: счёт; оплата"/>
+                <TextBlock x:Name="BodyLabel" Text="Текст письма содержит" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="BodyBox" AutomationProperties.Name="Текст письма содержит"/>
+
+                <TextBlock Text="Действие" Style="{StaticResource SectionHeader}"/>
+                <ComboBox x:Name="ModeCombo" Margin="0,6,0,0" AutomationProperties.Name="Способ пересылки" SelectionChanged="ModeCombo_SelectionChanged"/>
+                <TextBlock x:Name="ModeHint" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                <TextBlock Text="Кому (адреса через «;»)" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="ToBox" AutomationProperties.Name="Кому пересылать"/>
+                <CheckBox x:Name="KeepCopyCheck" Content="Оставлять письмо в моём ящике" Margin="0,12,0,0"/>
+                <CheckBox x:Name="StopCheck" Content="Не применять к этому письму следующие правила" Margin="0,6,0,0"/>
+                <CheckBox x:Name="EnabledCheck" Content="Правило включено" Margin="0,6,0,0"/>
+
+                <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,16,0,0"
+                           Text="Пересылка на внешние адреса может быть запрещена администратором почтового сервера — в этом случае письма не будут доставлены получателю."/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

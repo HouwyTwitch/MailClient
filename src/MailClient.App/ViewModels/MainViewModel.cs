@@ -53,7 +53,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected), nameof(IsJunkFolder),
-        nameof(SupportsContacts), nameof(SupportsOutOfOffice))]
+        nameof(SupportsContacts), nameof(SupportsOutOfOffice), nameof(SupportsForwardingRules))]
     private FolderNodeViewModel? _selectedFolder;
 
     [ObservableProperty]
@@ -89,6 +89,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private ProviderCapabilities Caps => CurrentSession?.Provider.Capabilities ?? ProviderCapabilities.All;
     public bool SupportsContacts => Caps.HasFlag(ProviderCapabilities.Contacts);
     public bool SupportsOutOfOffice => Caps.HasFlag(ProviderCapabilities.OutOfOffice);
+    public bool SupportsForwardingRules => Caps.HasFlag(ProviderCapabilities.ForwardingRules);
     public bool HasPreview => Preview != null;
     public bool HasAccounts => _sessions.Count > 0;
     public string FolderTitle => SelectedFolder?.Name ?? "";
@@ -1001,6 +1002,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
         WindowFactory.OutOfOffice(s);
+    }
+
+    [RelayCommand]
+    private void OpenForwardingRules()
+    {
+        if (CurrentSession is not { } s) return;
+        if (!SupportsForwardingRules)
+        {
+            Dialogs.Info("Для этой учётной записи пересылка настраивается в веб-интерфейсе почты.");
+            return;
+        }
+        WindowFactory.ForwardingRules(s);
     }
 
     [RelayCommand]
