@@ -17,6 +17,7 @@ public partial class ComposeWindow : Window
     private TextBox? _suggestTarget;
     private CancellationTokenSource? _suggestCts;
     private bool _closeConfirmed;
+    private bool _closePromptOpen;
 
     public ComposeWindow(ComposeViewModel vm)
     {
@@ -27,7 +28,8 @@ public partial class ComposeWindow : Window
         vm.CloseRequested += (_, _) =>
         {
             _closeConfirmed = true;
-            Close();
+            // Deferred: the request may arrive while a close is already in progress.
+            Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(Close));
         };
 
         _suggestTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
@@ -74,16 +76,38 @@ public partial class ComposeWindow : Window
 
     public bool HasUnsavedChanges => _vm.IsDirty;
 
-    protected override async void OnClosing(CancelEventArgs e)
+    protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
         if (_closeConfirmed || !_vm.IsDirty) return;
+        // WPF forbids Close()/ShowDialog on a window while it is closing: cancel this close, ask once the
+        // Closing event has finished, and close again if the user agrees.
         e.Cancel = true;
-        var answer = Dialogs.YesNoCancel("Сохранить изменения в черновиках?", "Письмо не отправлено");
-        if (answer == null) return;
-        if (answer == true && !await _vm.SaveDraftCoreAsync(closeAfter: false)) return;
-        _closeConfirmed = true;
-        Close();
+        if (_closePromptOpen) return;
+        _closePromptOpen = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(ConfirmCloseAsync));
+    }
+
+    private async void ConfirmCloseAsync()
+    {
+        try
+        {
+            // The window may already be gone (application shutdown, Windows logoff).
+            if (!IsVisible || PresentationSource.FromVisual(this) == null) return;
+            var answer = Dialogs.YesNoCancel("Сохранить изменения в черновиках?", "Письмо не отправлено");
+            if (answer == null) return;
+            if (answer == true && !await _vm.SaveDraftCoreAsync(closeAfter: false)) return;
+            _closeConfirmed = true;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Ошибка при закрытии окна письма", ex);
+        }
+        finally
+        {
+            _closePromptOpen = false;
+        }
     }
 
     // ------------------------------------------------------------------ attachments
