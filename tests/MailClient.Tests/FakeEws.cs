@@ -45,6 +45,34 @@ internal sealed class FakeEws : HttpMessageHandler
 
     public XElement Last(string operation) => Requests.Last(r => r.Name.LocalName == operation);
 
+    public IEnumerable<XElement> All(string operation) => Requests.Where(r => r.Name.LocalName == operation);
+
+    /// <summary>
+    /// Answers GetItem like Exchange: one response message per requested id, from <paramref name="items"/>
+    /// (full item XML keyed by id) or ErrorItemNotFound.
+    /// </summary>
+    public FakeEws ServeItems(IDictionary<string, string> items) => On("GetItem", req =>
+    {
+        var ids = req.Descendants(T + "ItemId").Select(e => e.Attribute("Id")!.Value);
+        var messages = ids.Select(id => items.TryGetValue(id, out var xml)
+            ? Success("GetItem", $"<m:Items>{xml}</m:Items>")
+            : Error("GetItem", "ErrorItemNotFound", "The specified object was not found in the store."));
+        return Xml(Envelope(Response("GetItem", messages.ToArray())));
+    });
+
+    /// <summary>Answers GetFolder (AllProperties) for the requested FolderIds from <paramref name="folders"/>.</summary>
+    public FakeEws ServeFolders(IDictionary<string, string> folders) => On("GetFolder", req =>
+    {
+        var ids = req.Descendants(T + "FolderId").Select(e => e.Attribute("Id")!.Value);
+        var messages = ids.Select(id => folders.TryGetValue(id, out var xml)
+            ? Success("GetFolder", $"<m:Folders>{xml}</m:Folders>")
+            : Error("GetFolder", "ErrorFolderNotFound"));
+        return Xml(Envelope(Response("GetFolder", messages.ToArray())));
+    });
+
+    /// <summary>Item with only an id, as returned by IdOnly FindItem/SyncFolderItems.</summary>
+    public static string IdOnly(string id) => $"<t:Message><t:ItemId Id=\"{id}\"/></t:Message>";
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var text = await request.Content!.ReadAsStringAsync(ct);

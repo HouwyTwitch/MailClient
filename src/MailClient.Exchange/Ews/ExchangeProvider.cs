@@ -141,71 +141,101 @@ public sealed class ExchangeProvider : IMailProvider
 
     // ===================================================================== folders
 
+    /// <summary>
+    /// Well-known folders resolved first, as Thunderbird does (rust/protocol_shared EXCHANGE_DISTINGUISHED_IDS).
+    /// "archive" is left out: it is not in the Exchange 2016 schema and older servers reject the whole request.
+    /// </summary>
+    private static readonly string[] WellKnownNames =
+        { "msgfolderroot", "inbox", "deleteditems", "drafts", "outbox", "sentitems", "junkemail" };
+
+    /// <summary>Microsoft's recommended batch size for GetFolder/GetItem (also used by Thunderbird).</summary>
+    private const int BatchSize = 10;
+
+    private string? _hierarchySyncState;
+    private readonly Dictionary<string, MailFolder> _folders = new();
+    private MailFolder? _root;
+
+    /// <summary>
+    /// Folder tree, synchronized the way Thunderbird does it (ews_xpcom sync_folder_hierarchy.rs):
+    /// 1) GetFolder IdOnly for the well-known folders; 2) SyncFolderHierarchy (IdOnly) from msgfolderroot with
+    /// the previous sync state, so later calls only transfer changes; 3) GetFolder AllProperties for created or
+    /// updated folders in batches of 10. Only plain (mail) folders are kept, as in Thunderbird.
+    /// </summary>
     public async Task<IReadOnlyList<MailFolder>> GetFoldersAsync(CancellationToken ct = default)
     {
-        // 1) Resolve the ids of the well-known folders (one request, one response message each).
-        var names = DistinguishedFolders.Keys.ToList();
-        var getFolder = new XElement(M + "GetFolder",
-            new XElement(M + "FolderShape", new XElement(T + "BaseShape", "AllProperties")),
-            new XElement(M + "FolderIds", names.Select(FolderIdElement)));
-        var gfResponse = await _ews.SendAsync(getFolder, ct).ConfigureAwait(false);
-        var messages = EwsClient.ResponseMessages(gfResponse).ToList();
+        if (_root == null || _hierarchySyncState == null)
+            await LoadWellKnownFoldersAsync(ct).ConfigureAwait(false);
 
-        var result = new List<MailFolder>();
-        MailFolder? root = null;
-        for (int i = 0; i < messages.Count && i < names.Count; i++)
-        {
-            if ((string?)messages[i].Attribute("ResponseClass") == "Error")
-            {
-                if (names[i] == "msgfolderroot") EwsClient.ThrowIfError(messages[i]);
-                continue; // e.g. "notes" may not exist
-            }
-            var folderEl = messages[i].Element(M + "Folders")?.Elements().FirstOrDefault();
-            if (folderEl == null) continue;
-            var wk = DistinguishedFolders[names[i]];
-            var f = EwsParser.ParseFolder(folderEl);
-            _wellKnownIds[wk] = f.Id;
-            if (wk == WellKnownFolder.Root)
-            {
-                f.WellKnown = WellKnownFolder.Root;
-                f.ParentId = null;
-                f.DisplayName = string.IsNullOrEmpty(f.DisplayName) ? (SharedMailbox ?? Account.EmailAddress) : f.DisplayName;
-                root = f;
-            }
-        }
-        if (root == null) throw new MailServiceException("Не удалось открыть корневую папку почтового ящика.");
-        result.Add(root);
-
-        // 2) Enumerate the whole tree below the root (deep traversal, paged).
-        var wellKnownById = _wellKnownIds.ToDictionary(kv => kv.Value, kv => kv.Key);
-        int offset = 0;
+        var created = new List<string>();
+        var updated = new HashSet<string>();
+        var deleted = new HashSet<string>();
         while (true)
         {
-            var findFolder = new XElement(M + "FindFolder", new XAttribute("Traversal", "Deep"),
+            var request = new XElement(M + "SyncFolderHierarchy",
+                new XElement(M + "FolderShape", new XElement(T + "BaseShape", "IdOnly")),
+                new XElement(M + "SyncFolderId", FolderIdElement("msgfolderroot")));
+            if (_hierarchySyncState != null) request.Add(new XElement(M + "SyncState", _hierarchySyncState));
+            XElement response;
+            try
+            {
+                response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+                EwsClient.ThrowOnError(response);
+            }
+            catch (SyncStateInvalidException)
+            {
+                _hierarchySyncState = null;
+                _folders.Clear();
+                continue;
+            }
+            var msg = EwsClient.ResponseMessages(response).First();
+            foreach (var change in msg.Element(M + "Changes")?.Elements() ?? Enumerable.Empty<XElement>())
+            {
+                if (change.Name.LocalName == "Delete")
+                {
+                    if ((string?)change.Element(T + "FolderId")?.Attribute("Id") is { } gone) deleted.Add(gone);
+                    continue;
+                }
+                // Like Thunderbird, only plain folders (mail); calendar/contacts/tasks/search folders are skipped.
+                var folder = change.Element(T + "Folder");
+                if ((string?)folder?.Element(T + "FolderId")?.Attribute("Id") is not { } id) continue;
+                if (change.Name.LocalName == "Create") created.Add(id);
+                else updated.Add(id);
+            }
+            _hierarchySyncState = msg.Element(M + "SyncState")?.Value;
+            if (ParseBool(msg.Element(M + "IncludesLastFolderInRange")?.Value) || _hierarchySyncState == null) break;
+        }
+
+        foreach (var id in deleted) _folders.Remove(id);
+        var toFetch = created.Concat(updated).Where(id => !deleted.Contains(id)).Distinct().ToList();
+        var wellKnownById = _wellKnownIds.ToDictionary(kv => kv.Value, kv => kv.Key);
+        foreach (var batch in toFetch.Chunk(BatchSize))
+        {
+            var request = new XElement(M + "GetFolder",
                 new XElement(M + "FolderShape",
                     new XElement(T + "BaseShape", "AllProperties"),
                     new XElement(T + "AdditionalProperties", ExtendedFieldUri(EwsParser.HiddenPropTag, "Boolean"))),
-                new XElement(M + "IndexedPageFolderView",
-                    new XAttribute("MaxEntriesReturned", PageSizeMax),
-                    new XAttribute("Offset", offset),
-                    new XAttribute("BasePoint", "Beginning")),
-                new XElement(M + "ParentFolderIds", new XElement(T + "FolderId", new XAttribute("Id", root.Id))));
-            var response = await _ews.SendAsync(findFolder, ct).ConfigureAwait(false);
-            EwsClient.ThrowOnError(response);
-            var rootFolder = response.Descendants(M + "RootFolder").FirstOrDefault();
-            var folders = rootFolder?.Element(T + "Folders")?.Elements().Where(EwsParser.IsFolderElement).ToList() ?? new();
-            foreach (var fe in folders)
+                new XElement(M + "FolderIds", batch.Select(id => new XElement(T + "FolderId", new XAttribute("Id", id)))));
+            var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+            foreach (var message in EwsClient.ResponseMessages(response))
             {
-                if (EwsParser.IsHidden(fe)) continue;
+                // A folder deleted between the two calls is simply skipped.
+                if ((string?)message.Attribute("ResponseClass") == "Error") continue;
+                var fe = message.Element(M + "Folders")?.Elements().FirstOrDefault(EwsParser.IsFolderElement);
+                if (fe == null) continue;
                 var f = EwsParser.ParseFolder(fe);
+                if (EwsParser.IsHidden(fe))
+                {
+                    _folders.Remove(f.Id);
+                    continue;
+                }
                 f.WellKnown = wellKnownById.TryGetValue(f.Id, out var wk) ? wk : WellKnownFolder.None;
-                result.Add(f);
+                _folders[f.Id] = f;
             }
-            offset += folders.Count;
-            if (folders.Count == 0 || ParseBool((string?)rootFolder?.Attribute("IncludesLastItemInRange"))) break;
         }
 
-        // Drop folders whose parent was hidden (they would be orphans in the tree).
+        var result = new List<MailFolder> { _root! };
+        result.AddRange(_folders.Values);
+        // Drop folders whose parent is hidden or unknown (they would be orphans in the tree).
         var ids = new HashSet<string>(result.Select(f => f.Id));
         bool removed;
         do
@@ -214,6 +244,35 @@ public sealed class ExchangeProvider : IMailProvider
             if (removed) ids = new HashSet<string>(result.Select(f => f.Id));
         } while (removed);
         return result;
+    }
+
+    private async Task LoadWellKnownFoldersAsync(CancellationToken ct)
+    {
+        var request = new XElement(M + "GetFolder",
+            new XElement(M + "FolderShape", new XElement(T + "BaseShape", "IdOnly")),
+            new XElement(M + "FolderIds", WellKnownNames.Select(FolderIdElement)));
+        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+        var messages = EwsClient.ResponseMessages(response).ToList();
+        if (messages.Count != WellKnownNames.Length)
+            throw new MailServiceException("Сервер вернул неожиданное число ответов на запрос стандартных папок.");
+        // Any error on the root folder is fatal (Thunderbird does the same); others are optional.
+        EwsClient.ThrowIfError(messages[0]);
+        for (int i = 0; i < messages.Count; i++)
+        {
+            if ((string?)messages[i].Attribute("ResponseClass") == "Error") continue;
+            var fe = messages[i].Element(M + "Folders")?.Elements().FirstOrDefault();
+            if ((string?)fe?.Element(T + "FolderId")?.Attribute("Id") is { } id)
+                _wellKnownIds[DistinguishedFolders[WellKnownNames[i]]] = id;
+        }
+        _root = new MailFolder
+        {
+            Id = _wellKnownIds[WellKnownFolder.Root],
+            WellKnown = WellKnownFolder.Root,
+            DisplayName = SharedMailbox ?? Account.EmailAddress,
+            FolderClass = "IPF.Note",
+        };
+        _hierarchySyncState = null;
+        _folders.Clear();
     }
 
     public async Task<MailFolder> CreateFolderAsync(string parentFolderId, string name, FolderKind kind = FolderKind.Mail, CancellationToken ct = default)
@@ -318,10 +377,43 @@ public sealed class ExchangeProvider : IMailProvider
                 new XElement(T + "Constant", new XAttribute("Value", value)));
     }
 
+    /// <summary>
+    /// Message headers for the given ids, fetched like Thunderbird (ews_xpcom client.rs get_items): GetItem with
+    /// IdOnly + explicit AdditionalProperties, 10 ids per request. Items deleted in the meantime are skipped.
+    /// </summary>
+    private async Task<List<MessageSummary>> GetSummariesAsync(IEnumerable<string> itemIds, string folderId, CancellationToken ct)
+    {
+        var result = new List<MessageSummary>();
+        foreach (var batch in itemIds.Distinct().Chunk(BatchSize))
+        {
+            var request = new XElement(M + "GetItem",
+                SummaryShape(M + "ItemShape"),
+                new XElement(M + "ItemIds", batch.Select(id => ItemId(id))));
+            var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+            foreach (var message in EwsClient.ResponseMessages(response))
+            {
+                if ((string?)message.Attribute("ResponseClass") == "Error")
+                {
+                    var code = message.Element(M + "ResponseCode")?.Value;
+                    if (code is "ErrorItemNotFound" or "ErrorMessageDisposalNotFound") continue;
+                    EwsClient.ThrowIfError(message);
+                }
+                foreach (var item in ItemElements(message.Element(M + "Items")))
+                {
+                    var summary = EwsParser.ParseSummary(item);
+                    summary.FolderId = folderId;
+                    result.Add(summary);
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>FindItem returning ids only (newest first); details come from <see cref="GetSummariesAsync"/>.</summary>
     private async Task<MessagePage> FindMessagesAsync(string folderId, XElement? filter, int offset, int pageSize, CancellationToken ct)
     {
         var request = new XElement(M + "FindItem", new XAttribute("Traversal", "Shallow"),
-            SummaryShape(M + "ItemShape"),
+            new XElement(M + "ItemShape", new XElement(T + "BaseShape", "IdOnly")),
             new XElement(M + "IndexedPageItemView",
                 new XAttribute("MaxEntriesReturned", Math.Clamp(pageSize, 1, PageSizeMax)),
                 new XAttribute("Offset", offset),
@@ -335,28 +427,31 @@ public sealed class ExchangeProvider : IMailProvider
         var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
         EwsClient.ThrowOnError(response);
         var root = response.Descendants(M + "RootFolder").FirstOrDefault();
-        var items = ItemElements(root?.Element(T + "Items")).Select(e =>
-        {
-            var s = EwsParser.ParseSummary(e);
-            s.FolderId = folderId;
-            return s;
-        }).ToList();
+        var ids = ItemElements(root?.Element(T + "Items"))
+            .Select(e => (string?)e.Element(T + "ItemId")?.Attribute("Id"))
+            .OfType<string>().ToList();
+        var details = (await GetSummariesAsync(ids, folderId, ct).ConfigureAwait(false)).ToDictionary(m => m.Id);
         return new MessagePage
         {
-            Items = items,
+            // Keep the server's (date) order.
+            Items = ids.Where(details.ContainsKey).Select(id => details[id]).ToList(),
             TotalCount = ParseInt((string?)root?.Attribute("TotalItemsInView")),
             HasMore = !ParseBool((string?)root?.Attribute("IncludesLastItemInRange")),
         };
     }
 
+    /// <summary>
+    /// Incremental item sync as in Thunderbird (ews_xpcom sync_messages_for_folder.rs): SyncFolderItems with
+    /// IdOnly — Microsoft's guidance, and the server silently drops some properties in sync responses — then the
+    /// headers of created/updated items via GetItem in batches of 10.
+    /// </summary>
     public async Task<FolderSyncResult> SyncFolderItemsAsync(string folderId, string? syncState, int maxChanges, CancellationToken ct = default)
     {
         var request = new XElement(M + "SyncFolderItems",
-            SummaryShape(M + "ItemShape"),
+            new XElement(M + "ItemShape", new XElement(T + "BaseShape", "IdOnly")),
             new XElement(M + "SyncFolderId", FolderIdElement(folderId)));
         if (!string.IsNullOrEmpty(syncState)) request.Add(new XElement(M + "SyncState", syncState));
         request.Add(new XElement(M + "MaxChangesReturned", Math.Clamp(maxChanges, 1, 512)));
-        request.Add(new XElement(M + "SyncScope", "NormalItems"));
 
         var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
         EwsClient.ThrowOnError(response);
@@ -366,6 +461,7 @@ public sealed class ExchangeProvider : IMailProvider
             SyncState = msg.Element(M + "SyncState")?.Value ?? "",
             IncludesLastItem = ParseBool(msg.Element(M + "IncludesLastItemInRange")?.Value),
         };
+        var toFetch = new List<string>();
         foreach (var change in msg.Element(M + "Changes")?.Elements() ?? Enumerable.Empty<XElement>())
         {
             switch (change.Name.LocalName)
@@ -373,11 +469,7 @@ public sealed class ExchangeProvider : IMailProvider
                 case "Create":
                 case "Update":
                     foreach (var item in ItemElements(change))
-                    {
-                        var s = EwsParser.ParseSummary(item);
-                        s.FolderId = folderId;
-                        result.CreatedOrUpdated.Add(s);
-                    }
+                        if ((string?)item.Element(T + "ItemId")?.Attribute("Id") is { } id) toFetch.Add(id);
                     break;
                 case "Delete":
                     if (change.Element(T + "ItemId")?.Attribute("Id")?.Value is { } deletedId)
@@ -389,6 +481,8 @@ public sealed class ExchangeProvider : IMailProvider
                     break;
             }
         }
+        var deleted = new HashSet<string>(result.Deleted);
+        result.CreatedOrUpdated.AddRange(await GetSummariesAsync(toFetch.Where(id => !deleted.Contains(id)), folderId, ct).ConfigureAwait(false));
         return result;
     }
 

@@ -304,7 +304,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                Log.Warn($"Папка {folder.Name} не синхронизирована: {ex.Message}");
+                Log.Warn($"Папка {folder.Name} не синхронизирована: {MailClient.Core.Diagnostics.MailLog.Describe(ex)}");
                 if (Messages.Count == 0) ListStatus = "Нет связи с сервером. " + RuText.Error(ex);
             }
         }

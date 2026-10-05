@@ -35,17 +35,23 @@ public class ExchangeProviderTests
         $"<m:RootFolder TotalItemsInView=\"{total}\" IncludesLastItemInRange=\"{(last ? "true" : "false")}\"><t:Items>{items}</t:Items></m:RootFolder>";
 
     [Fact]
-    public async Task GetMessages_builds_valid_FindItem_and_parses_summaries()
+    public async Task GetMessages_finds_ids_then_fetches_headers_like_thunderbird()
     {
-        var fake = new FakeEws().On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(MessageXml, last: false, total: 120))));
+        var fake = new FakeEws()
+            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(IdOnly("AAA="), last: false, total: 120))))
+            .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
         using var p = fake.CreateProvider();
 
         var page = await p.GetMessagesAsync("inbox", 0, 50);
 
         Assert.Empty(fake.ValidationErrors);
-        var req = fake.Last("FindItem");
-        Assert.Equal("inbox", req.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
-        Assert.Equal("50", req.Element(M + "IndexedPageItemView")!.Attribute("MaxEntriesReturned")!.Value);
+        var find = fake.Last("FindItem");
+        Assert.Equal("inbox", find.Descendants(T + "DistinguishedFolderId").Single().Attribute("Id")!.Value);
+        Assert.Equal("IdOnly", find.Descendants(T + "BaseShape").Single().Value);
+        Assert.Empty(find.Descendants(T + "AdditionalProperties"));
+        var get = fake.Last("GetItem");
+        Assert.Equal("IdOnly", get.Descendants(T + "BaseShape").Single().Value);
+        Assert.Contains(get.Descendants(T + "FieldURI"), f => f.Attribute("FieldURI")!.Value == "item:Preview");
 
         Assert.True(page.HasMore);
         Assert.Equal(120, page.TotalCount);
@@ -62,94 +68,140 @@ public class ExchangeProviderTests
         Assert.Equal(new DateTimeOffset(2026, 9, 30, 8, 15, 0, TimeSpan.Zero), m.DateReceived);
         Assert.Equal(new[] { "Red" }, m.Categories);
     }
-
     [Fact]
     public async Task Exchange2010_uses_extended_flag_property_instead_of_item_Flag()
     {
-        var fake = new FakeEws().On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(
-            """
-            <t:Message><t:ItemId Id="X"/><t:Subject>s</t:Subject>
-              <t:ExtendedProperty><t:ExtendedFieldURI PropertyTag="0x1090" PropertyType="Integer"/><t:Value>2</t:Value></t:ExtendedProperty>
-              <t:IsRead>true</t:IsRead></t:Message>
-            """))));
+        var fake = new FakeEws()
+            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(IdOnly("X")))))
+            .ServeItems(new Dictionary<string, string>
+            {
+                ["X"] = """
+                    <t:Message><t:ItemId Id="X"/><t:Subject>s</t:Subject>
+                      <t:ExtendedProperty><t:ExtendedFieldURI PropertyTag="0x1090" PropertyType="Integer"/><t:Value>2</t:Value></t:ExtendedProperty>
+                      <t:IsRead>true</t:IsRead></t:Message>
+                    """,
+            });
         using var p = fake.CreateProvider(ExchangeServerVersion.Exchange2010_SP2);
         var page = await p.GetMessagesAsync("inbox", 0, 10);
         Assert.Empty(fake.ValidationErrors);
-        Assert.DoesNotContain(fake.Last("FindItem").Descendants(T + "FieldURI"), f => f.Attribute("FieldURI")!.Value == "item:Flag");
+        Assert.DoesNotContain(fake.Last("GetItem").Descendants(T + "FieldURI"), f => f.Attribute("FieldURI")!.Value is "item:Flag" or "item:Preview");
         Assert.Equal(FlagStatus.Flagged, page.Items[0].Flag);
     }
+    private static string FolderXml(string id, string name, string parent = "ROOT", string cls = "IPF.Note", string extra = "") =>
+        $"<t:Folder><t:FolderId Id=\"{id}\"/><t:ParentFolderId Id=\"{parent}\"/><t:FolderClass>{cls}</t:FolderClass>" +
+        $"<t:DisplayName>{name}</t:DisplayName><t:TotalCount>10</t:TotalCount><t:ChildFolderCount>0</t:ChildFolderCount>{extra}<t:UnreadCount>3</t:UnreadCount></t:Folder>";
+
+    private const string HiddenProp = "<t:ExtendedProperty><t:ExtendedFieldURI PropertyTag=\"0x10f4\" PropertyType=\"Boolean\"/><t:Value>true</t:Value></t:ExtendedProperty>";
+
+    private static string WellKnownResponse() => Response("GetFolder",
+        Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"ROOT\"/></t:Folder></m:Folders>"),
+        Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"INBOX\"/></t:Folder></m:Folders>"),
+        Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"TRASH\"/></t:Folder></m:Folders>"),
+        Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"DRAFTS\"/></t:Folder></m:Folders>"),
+        Error("GetFolder", "ErrorFolderNotFound"),
+        Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"SENT\"/></t:Folder></m:Folders>"),
+        Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"JUNK\"/></t:Folder></m:Folders>"));
 
     [Fact]
-    public async Task GetFolders_maps_well_known_folders_and_skips_hidden()
+    public async Task GetFolders_follows_thunderbird_hierarchy_sync()
     {
-        static string Folder(string id, string name, string parent = "ROOT", string cls = "IPF.Note", string extra = "") =>
-            $"<t:Folder><t:FolderId Id=\"{id}\"/><t:ParentFolderId Id=\"{parent}\"/><t:FolderClass>{cls}</t:FolderClass>" +
-            $"<t:DisplayName>{name}</t:DisplayName><t:TotalCount>10</t:TotalCount><t:ChildFolderCount>0</t:ChildFolderCount>{extra}<t:UnreadCount>3</t:UnreadCount></t:Folder>";
-
-        var getFolderMessages = new List<string>();
-        foreach (var name in Ews.DistinguishedFolders.Keys)
+        var details = new Dictionary<string, string>
         {
-            getFolderMessages.Add(name switch
-            {
-                "msgfolderroot" => Success("GetFolder", $"<m:Folders>{Folder("ROOT", "Top of Information Store", "X")}</m:Folders>"),
-                "inbox" => Success("GetFolder", $"<m:Folders>{Folder("INBOX", "Inbox")}</m:Folders>"),
-                "notes" => Error("GetFolder", "ErrorFolderNotFound"),
-                _ => Success("GetFolder", $"<m:Folders>{Folder(name.ToUpperInvariant(), name)}</m:Folders>"),
-            });
-        }
-        const string hidden = "<t:ExtendedProperty><t:ExtendedFieldURI PropertyTag=\"0x10f4\" PropertyType=\"Boolean\"/><t:Value>true</t:Value></t:ExtendedProperty>";
+            ["INBOX"] = FolderXml("INBOX", "Inbox"),
+            ["SUB"] = FolderXml("SUB", "Projects", parent: "INBOX"),
+            ["HID"] = FolderXml("HID", "Sync Issues", extra: HiddenProp),
+            ["ORPHAN"] = FolderXml("ORPHAN", "Conflicts", parent: "HID"),
+            ["SENT"] = FolderXml("SENT", "Sent Items"),
+        };
+        for (int i = 0; i < 12; i++) details[$"F{i}"] = FolderXml($"F{i}", $"Folder {i}");
+        var creates = string.Concat(details.Keys.Select(id => $"<t:Create><t:Folder><t:FolderId Id=\"{id}\"/></t:Folder></t:Create>"));
         var fake = new FakeEws()
-            .On("GetFolder", Response("GetFolder", getFolderMessages.ToArray()))
-            .On("FindFolder", Response("FindFolder", Success("FindFolder",
-                "<m:RootFolder IncludesLastItemInRange=\"true\"><t:Folders>" +
-                Folder("INBOX", "Inbox") +
-                Folder("SUB", "Projects", parent: "INBOX") +
-                Folder("HID", "Sync Issues", extra: hidden) +
-                Folder("ORPHAN", "Conflicts", parent: "HID") +
-                "<t:CalendarFolder><t:FolderId Id=\"CAL\"/><t:ParentFolderId Id=\"ROOT\"/><t:DisplayName>Calendar</t:DisplayName></t:CalendarFolder>" +
-                "</t:Folders></m:RootFolder>")));
+            .On("GetFolder", WellKnownResponse())
+            .On("SyncFolderHierarchy", Response("SyncFolderHierarchy", Success("SyncFolderHierarchy",
+                $"<m:SyncState>H1</m:SyncState><m:IncludesLastFolderInRange>true</m:IncludesLastFolderInRange><m:Changes>{creates}" +
+                "<t:Create><t:CalendarFolder><t:FolderId Id=\"CAL\"/></t:CalendarFolder></t:Create></m:Changes>")))
+            .On("SyncFolderHierarchy", Response("SyncFolderHierarchy", Success("SyncFolderHierarchy",
+                "<m:SyncState>H2</m:SyncState><m:IncludesLastFolderInRange>true</m:IncludesLastFolderInRange><m:Changes>" +
+                "<t:Update><t:Folder><t:FolderId Id=\"SUB\"/></t:Folder></t:Update><t:Delete><t:FolderId Id=\"F0\"/></t:Delete></m:Changes>")))
+            .ServeFolders(details);
         using var p = fake.CreateProvider();
 
         var folders = await p.GetFoldersAsync();
 
         Assert.Empty(fake.ValidationErrors);
+        var getFolders = fake.All("GetFolder").ToList();
+        // Well-known folders: IdOnly, the Thunderbird list.
+        Assert.Equal("IdOnly", getFolders[0].Descendants(T + "BaseShape").Single().Value);
+        Assert.Equal(new[] { "msgfolderroot", "inbox", "deleteditems", "drafts", "outbox", "sentitems", "junkemail" },
+            getFolders[0].Descendants(T + "DistinguishedFolderId").Select(e => e.Attribute("Id")!.Value));
+        // Details in batches of at most 10, never for calendar/contacts folders.
+        Assert.All(getFolders.Skip(1), g => Assert.True(g.Descendants(T + "FolderId").Count() <= 10));
+        Assert.DoesNotContain(getFolders.SelectMany(g => g.Descendants(T + "FolderId")), e => e.Attribute("Id")!.Value == "CAL");
+        Assert.Equal("IdOnly", fake.Last("SyncFolderHierarchy").Descendants(T + "BaseShape").Single().Value);
+
         Assert.Contains(folders, f => f.Id == "ROOT" && f.WellKnown == WellKnownFolder.Root && f.ParentId == null);
         var inbox = Assert.Single(folders, f => f.Id == "INBOX");
         Assert.Equal(WellKnownFolder.Inbox, inbox.WellKnown);
         Assert.Equal(3, inbox.UnreadCount);
+        Assert.Equal(WellKnownFolder.SentItems, folders.Single(f => f.Id == "SENT").WellKnown);
         Assert.Contains(folders, f => f.Id == "SUB" && f.ParentId == "INBOX");
-        Assert.DoesNotContain(folders, f => f.Id == "HID");
-        Assert.DoesNotContain(folders, f => f.Id == "ORPHAN");
-        Assert.Equal(FolderKind.Calendar, folders.Single(f => f.Id == "CAL").Kind);
-    }
+        Assert.DoesNotContain(folders, f => f.Id is "HID" or "ORPHAN" or "CAL");
 
+        // Second call: incremental, only the changes travel.
+        int before = fake.All("GetFolder").Count();
+        var again = await p.GetFoldersAsync();
+        Assert.Equal("H1", fake.Last("SyncFolderHierarchy").Element(M + "SyncState")!.Value);
+        Assert.Equal(new[] { "SUB" }, fake.All("GetFolder").Skip(before).SelectMany(g => g.Descendants(T + "FolderId")).Select(e => e.Attribute("Id")!.Value));
+        Assert.DoesNotContain(again, f => f.Id == "F0");
+        Assert.Contains(again, f => f.Id == "F1");
+    }
     [Fact]
-    public async Task SyncFolderItems_parses_all_change_types()
+    public async Task SyncFolderItems_is_id_only_then_getitem_in_batches_of_ten()
     {
-        var fake = new FakeEws().On("SyncFolderItems", Response("SyncFolderItems", Success("SyncFolderItems",
-            $"""
-            <m:SyncState>STATE2</m:SyncState>
-            <m:IncludesLastItemInRange>true</m:IncludesLastItemInRange>
-            <m:Changes>
-              <t:Create>{MessageXml}</t:Create>
-              <t:Delete><t:ItemId Id="GONE"/></t:Delete>
-              <t:ReadFlagChange><t:ItemId Id="RD"/><t:IsRead>true</t:IsRead></t:ReadFlagChange>
-            </m:Changes>
-            """)));
+        var items = new Dictionary<string, string> { ["AAA="] = MessageXml };
+        var creates = new System.Text.StringBuilder($"<t:Create>{IdOnly("AAA=")}</t:Create>");
+        for (int i = 0; i < 14; i++)
+        {
+            items[$"N{i}"] = $"<t:Message><t:ItemId Id=\"N{i}\"/><t:Subject>Письмо {i}</t:Subject><t:IsRead>false</t:IsRead></t:Message>";
+            creates.Append($"<t:Create>{IdOnly($"N{i}")}</t:Create>");
+        }
+        creates.Append($"<t:Update>{IdOnly("GONE_LATER")}</t:Update>"); // deleted between the two calls
+        var fake = new FakeEws()
+            .On("SyncFolderItems", Response("SyncFolderItems", Success("SyncFolderItems",
+                $"""
+                <m:SyncState>STATE2</m:SyncState>
+                <m:IncludesLastItemInRange>true</m:IncludesLastItemInRange>
+                <m:Changes>
+                  {creates}
+                  <t:Delete><t:ItemId Id="GONE"/></t:Delete>
+                  <t:ReadFlagChange><t:ItemId Id="RD"/><t:IsRead>true</t:IsRead></t:ReadFlagChange>
+                </m:Changes>
+                """)))
+            .ServeItems(items);
         using var p = fake.CreateProvider();
 
-        var r = await p.SyncFolderItemsAsync("FOLDER", "STATE1", 100);
+        var r = await p.SyncFolderItemsAsync("FOLDER", "STATE1", 256);
 
         Assert.Empty(fake.ValidationErrors);
-        Assert.Equal("STATE1", fake.Last("SyncFolderItems").Element(M + "SyncState")!.Value);
+        var sync = fake.Last("SyncFolderItems");
+        Assert.Equal("STATE1", sync.Element(M + "SyncState")!.Value);
+        Assert.Equal("IdOnly", sync.Descendants(T + "BaseShape").Single().Value);
+        Assert.Empty(sync.Descendants(T + "AdditionalProperties"));
+        Assert.Null(sync.Element(M + "SyncScope"));
+        Assert.Equal("256", sync.Element(M + "MaxChangesReturned")!.Value);
+        var gets = fake.All("GetItem").ToList();
+        Assert.Equal(2, gets.Count);
+        Assert.All(gets, g => Assert.True(g.Descendants(T + "ItemId").Count() <= 10));
+
         Assert.Equal("STATE2", r.SyncState);
         Assert.True(r.IncludesLastItem);
-        Assert.Equal("AAA=", Assert.Single(r.CreatedOrUpdated).Id);
-        Assert.Equal("FOLDER", r.CreatedOrUpdated[0].FolderId);
+        Assert.Equal(15, r.CreatedOrUpdated.Count);
+        var a = r.CreatedOrUpdated.Single(m => m.Id == "AAA=");
+        Assert.Equal("Quarterly report", a.Subject);
+        Assert.Equal("FOLDER", a.FolderId);
         Assert.Equal(new[] { "GONE" }, r.Deleted);
         Assert.True(r.ReadFlagChanges["RD"]);
     }
-
     [Fact]
     public async Task SyncFolderItems_invalid_state_raises_specific_exception()
     {
@@ -385,17 +437,18 @@ public class ExchangeProviderTests
     {
         var fake = new FakeEws()
             .On("FindItem", Response("FindItem", Error("FindItem", "ErrorInvalidRequest", "QueryString not supported")))
-            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(MessageXml))));
+            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(IdOnly("AAA=")))))
+            .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
         using var p = fake.CreateProvider();
 
         var page = await p.SearchMessagesAsync("inbox", "report", 0, 20);
 
         Assert.Empty(fake.ValidationErrors);
-        Assert.Equal("report", fake.Requests[0].Element(M + "QueryString")!.Value);
-        Assert.NotNull(fake.Requests[1].Element(M + "Restriction"));
-        Assert.Single(page.Items);
+        var finds = fake.All("FindItem").ToList();
+        Assert.Equal("report", finds[0].Element(M + "QueryString")!.Value);
+        Assert.NotNull(finds[1].Element(M + "Restriction"));
+        Assert.Equal("Quarterly report", Assert.Single(page.Items).Subject);
     }
-
     [Fact]
     public async Task ResolveNames_parses_directory_entries_and_tolerates_multiple_results_warning()
     {
@@ -553,13 +606,54 @@ public class ExchangeProviderTests
             """;
         var fake = new FakeEws()
             .On("FindItem", busy, HttpStatusCode.InternalServerError)
-            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(MessageXml))));
+            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(IdOnly("AAA=")))))
+            .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
         using var p = fake.CreateProvider();
 
         var page = await p.GetMessagesAsync("inbox", 0, 10);
 
-        Assert.Equal(2, fake.Requests.Count);
+        Assert.Equal(2, fake.All("FindItem").Count());
         Assert.Single(page.Items);
+    }
+
+    private sealed class DropOnce : HttpMessageHandler
+    {
+        private readonly FakeEws _inner;
+        public int Drops;
+        public DropOnce(FakeEws inner) => _inner = inner;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (Drops++ == 0) throw new HttpRequestException("The response ended prematurely.", new IOException("connection reset"));
+            return new HttpMessageInvoker(_inner).SendAsync(request, ct);
+        }
+    }
+
+    [Fact]
+    public async Task Read_operations_are_retried_after_a_dropped_connection()
+    {
+        var fake = new FakeEws().On("GetFolder", Response("GetFolder", Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"R\"/></t:Folder></m:Folders>")));
+        var drop = new DropOnce(fake);
+        using var p = new ExchangeProvider(Account(), new HttpClient(drop));
+
+        await p.ConnectAsync();
+
+        Assert.Equal(2, drop.Drops);
+        Assert.Single(fake.Requests);
+    }
+
+    [Fact]
+    public async Task Sending_is_never_retried_automatically_to_avoid_duplicates()
+    {
+        var fake = new FakeEws().On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items/>")));
+        var drop = new DropOnce(fake);
+        using var p = new ExchangeProvider(Account(), new HttpClient(drop));
+
+        var ex = await Assert.ThrowsAsync<MailConnectionException>(() =>
+            p.SendAsync(new OutgoingMessage { To = { new EmailAddress("", "a@b.ru") }, Subject = "x", Body = "y" }));
+
+        Assert.Equal(1, drop.Drops);
+        Assert.Empty(fake.Requests);
+        Assert.Contains("CreateItem", ex.Message);
     }
 
     [Fact]

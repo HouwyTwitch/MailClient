@@ -12,7 +12,8 @@ public sealed class SyncEngine
 {
     private readonly IMailProvider _provider;
     private readonly LocalCache _cache;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    /// <summary>One lock per folder: syncing a large Inbox must not block opening another folder.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _gates = new();
 
     public SyncEngine(IMailProvider provider, LocalCache cache)
     {
@@ -27,6 +28,9 @@ public sealed class SyncEngine
     public event EventHandler? FoldersChanged;
     /// <summary>Raised with the folder id after the folder's cached messages changed.</summary>
     public event EventHandler<string>? FolderContentChanged;
+    /// <summary>Raised after each batch: folder id and number of messages processed so far in this sync.</summary>
+    public event EventHandler<(string folderId, int processed)>? SyncProgress;
+
     /// <summary>Raised for unread messages that arrived since the previous sync (not on the initial sync).</summary>
     public event EventHandler<IReadOnlyList<MessageSummary>>? NewMessagesArrived;
 
@@ -54,14 +58,15 @@ public sealed class SyncEngine
     /// <summary>Synchronizes a single folder. Returns the number of changes applied.</summary>
     public async Task<int> SyncFolderAsync(string folderId, CancellationToken ct = default)
     {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        var gate = _gates.GetOrAdd(folderId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             return await SyncFolderCoreAsync(folderId, ct).ConfigureAwait(false);
         }
         finally
         {
-            _gate.Release();
+            gate.Release();
         }
     }
 
@@ -70,6 +75,8 @@ public sealed class SyncEngine
         var state = _cache.GetSyncState(folderId);
         bool initial = state == null;
         int changes = 0;
+        int resets = 0;
+        int emptyRounds = 0;
         var arrived = new List<MessageSummary>();
 
         while (true)
@@ -80,9 +87,9 @@ public sealed class SyncEngine
             {
                 result = await _provider.SyncFolderItemsAsync(folderId, state, 256, ct).ConfigureAwait(false);
             }
-            catch (SyncStateInvalidException)
+            catch (SyncStateInvalidException) when (resets++ == 0)
             {
-                // Server discarded our state: start over from scratch.
+                // Server discarded our state: start over from scratch (once per call, never in a loop).
                 _cache.ClearFolderMessages(folderId);
                 _cache.SetSyncState(folderId, null);
                 state = null;
@@ -106,7 +113,12 @@ public sealed class SyncEngine
             _cache.SetSyncState(folderId, state);
 
             if (changes > 0) FolderContentChanged?.Invoke(this, folderId);
+            SyncProgress?.Invoke(this, (folderId, changes));
             if (result.IncludesLastItem) break;
+            // Defensive: a server claiming "more to come" without delivering anything must not keep us looping.
+            int batch = result.CreatedOrUpdated.Count + result.Deleted.Count + result.ReadFlagChanges.Count;
+            emptyRounds = batch == 0 ? emptyRounds + 1 : 0;
+            if (emptyRounds >= 3) break;
         }
 
         if (changes > 0) _cache.RefreshFolderCounts(folderId);

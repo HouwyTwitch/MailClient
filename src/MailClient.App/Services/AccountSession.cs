@@ -36,6 +36,12 @@ public sealed class AccountSession : IDisposable
         Provider = ProviderFactory.Create(settings, credentials);
         Cache = new LocalCache(AppPaths.CacheFile(settings.Id));
         Sync = new SyncEngine(Provider, Cache);
+        Sync.SyncProgress += (_, p) =>
+        {
+            if (p.processed < 50) return;
+            var name = Cache.GetFolders().FirstOrDefault(f => f.Id == p.folderId) is { } f ? RuText.FolderName(f) : "папка";
+            SetStatus($"Синхронизация «{name}»: {RuText.Count(p.processed, "письмо", "письма", "писем")}…", true);
+        };
     }
 
     public string? InboxId => Cache.GetFolders().FirstOrDefault(f => f.WellKnown == WellKnownFolder.Inbox)?.Id;
@@ -106,7 +112,7 @@ public sealed class AccountSession : IDisposable
             catch (Exception ex)
             {
                 failures++;
-                Log.Warn($"[{Settings.EmailAddress}] Ошибка синхронизации: {ex.Message}");
+                Log.Warn($"[{Settings.EmailAddress}] Ошибка синхронизации: {MailClient.Core.Diagnostics.MailLog.Describe(ex)}");
                 SetStatus(ex is MailConnectionException ? "Нет связи с сервером — автономный режим" : "Ошибка синхронизации: " + ex.Message, false);
             }
 

@@ -155,8 +155,15 @@ public class SyncEngineTests : IDisposable
         foreach (var f in new[] { _path, _path + "-wal", _path + "-shm" }) if (File.Exists(f)) File.Delete(f);
     }
 
-    private static string Item(string id, bool read) =>
-        $"<t:Message><t:ItemId Id=\"{id}\"/><t:Subject>{id}</t:Subject><t:DateTimeReceived>{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</t:DateTimeReceived><t:IsRead>{(read ? "true" : "false")}</t:IsRead></t:Message>";
+    private static readonly Dictionary<string, string> Store = new();
+
+    /// <summary>SyncFolderItems carries ids only; the full item is served by GetItem (Thunderbird's flow).</summary>
+    private static string Item(string id, bool read)
+    {
+        lock (Store)
+            Store[id] = $"<t:Message><t:ItemId Id=\"{id}\"/><t:Subject>{id}</t:Subject><t:DateTimeReceived>{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ssZ}</t:DateTimeReceived><t:IsRead>{(read ? "true" : "false")}</t:IsRead></t:Message>";
+        return FakeEws.IdOnly(id);
+    }
 
     [Fact]
     public async Task Sync_pages_until_last_item_then_reports_new_mail_incrementally()
@@ -168,6 +175,7 @@ public class SyncEngineTests : IDisposable
                 $"<m:SyncState>S2</m:SyncState><m:IncludesLastItemInRange>true</m:IncludesLastItemInRange><m:Changes><t:Create>{Item("b", false)}</t:Create></m:Changes>")))
             .On("SyncFolderItems", FakeEws.Response("SyncFolderItems", FakeEws.Success("SyncFolderItems",
                 $"<m:SyncState>S3</m:SyncState><m:IncludesLastItemInRange>true</m:IncludesLastItemInRange><m:Changes><t:Create>{Item("c", false)}</t:Create><t:Delete><t:ItemId Id=\"a\"/></t:Delete></m:Changes>")));
+        fake.ServeItems(Store);
         using var provider = fake.CreateProvider();
         var cache = new LocalCache(_path);
         cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Inbox" } });
@@ -194,6 +202,7 @@ public class SyncEngineTests : IDisposable
             .On("SyncFolderItems", FakeEws.Response("SyncFolderItems", FakeEws.Error("SyncFolderItems", "ErrorInvalidSyncStateData")))
             .On("SyncFolderItems", FakeEws.Response("SyncFolderItems", FakeEws.Success("SyncFolderItems",
                 $"<m:SyncState>NEW</m:SyncState><m:IncludesLastItemInRange>true</m:IncludesLastItemInRange><m:Changes><t:Create>{Item("z", true)}</t:Create></m:Changes>")));
+        fake.ServeItems(Store);
         using var provider = fake.CreateProvider();
         var cache = new LocalCache(_path);
         cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Inbox" } });
@@ -234,4 +243,15 @@ public class SuggestTests : IDisposable
         Assert.Equal("oleg@x.ru", s[0].Address);
         Assert.Single(cache.SuggestAddresses("anna", 10));
     }
+}
+
+public class OneLineTests
+{
+    [Theory]
+    [InlineData("Добрый день,\r\n\r\nво вложении   отчёт\tза месяц", 200, "Добрый день, во вложении отчёт за месяц")]
+    [InlineData("\u200B\u200B  Привет\u00AD", 200, "Привет")]
+    [InlineData("abcdef", 3, "abc…")]
+    [InlineData(null, 10, "")]
+    public void Collapses_to_a_single_line(string? input, int max, string expected) =>
+        Assert.Equal(expected, MailClient.Core.Rendering.TextUtil.OneLine(input, max));
 }

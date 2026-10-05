@@ -45,6 +45,8 @@ public partial class App : Application
 
         base.OnStartup(e);
         Log.Cleanup();
+        MailClient.Core.Diagnostics.MailLog.Info = Log.Info;
+        MailClient.Core.Diagnostics.MailLog.Warn = Log.Warn;
         Log.Info($"Запуск {typeof(App).Assembly.GetName().Version}, Windows {Environment.OSVersion.Version}");
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
