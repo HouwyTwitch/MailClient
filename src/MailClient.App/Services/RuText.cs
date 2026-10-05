@@ -79,7 +79,7 @@ public static class RuText
         WellKnownFolder.SentItems => "\uE724",
         WellKnownFolder.DeletedItems => "\uE74D",
         WellKnownFolder.JunkEmail => "\uE7BA",
-        WellKnownFolder.Outbox => "\uE8B5",
+        WellKnownFolder.Outbox => "\uE898",
         WellKnownFolder.Root => "\uE77B",
         _ => "\uE8B7",
     };

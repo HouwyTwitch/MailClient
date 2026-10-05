@@ -40,5 +40,8 @@
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
     <EmbeddedResource Include="Assets\editor.html" />
+    <!-- Licenses of the libraries used, next to MailClient.exe (outside the single-file bundle). -->
+    <None Include="..\..\THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 </Project>

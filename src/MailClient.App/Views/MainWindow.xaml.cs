@@ -36,6 +36,8 @@ public partial class MainWindow : Window
             SearchBox.Focus();
             SearchBox.SelectAll();
         }), new KeyGesture(Key.E, ModifierKeys.Control)));
+        InputBindings.Add(new KeyBinding(new RelayAction(() => Print_Click(this, new RoutedEventArgs())),
+            new KeyGesture(Key.P, ModifierKeys.Control)));
     }
 
     // ------------------------------------------------------------------ window lifecycle
@@ -55,7 +57,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        BodyView.Dispose();
+        PreviewView.BodyView.Dispose();
         base.OnClosed(e);
         Application.Current.Shutdown();
     }
@@ -233,7 +235,7 @@ public partial class MainWindow : Window
 
     private async void Print_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm.HasPreview) await BodyView.PrintAsync();
+        if (_vm.HasPreview) await PreviewView.BodyView.PrintAsync();
     }
 
     private static T? FindAncestor<T>(DependencyObject d) where T : DependencyObject

@@ -28,24 +28,24 @@
                         <RowDefinition/>
                     </Grid.RowDefinitions>
                     <TextBlock Text="С:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <DatePicker x:Name="StartDate" Grid.Column="1" Margin="0,3"/>
-                    <TextBox x:Name="StartTime" Grid.Column="2" Margin="6,3,0,3"/>
+                    <DatePicker AutomationProperties.Name="Дата начала" x:Name="StartDate" Grid.Column="1" Margin="0,3"/>
+                    <TextBox x:Name="StartTime" AutomationProperties.Name="Время начала (ЧЧ:ММ)" Grid.Column="2" Margin="6,3,0,3"/>
                     <TextBlock Grid.Row="1" Text="По:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <DatePicker x:Name="EndDate" Grid.Row="1" Grid.Column="1" Margin="0,3"/>
-                    <TextBox x:Name="EndTime" Grid.Row="1" Grid.Column="2" Margin="6,3,0,3"/>
+                    <DatePicker x:Name="EndDate" AutomationProperties.Name="Дата окончания" Grid.Row="1" Grid.Column="1" Margin="0,3"/>
+                    <TextBox x:Name="EndTime" AutomationProperties.Name="Время окончания (ЧЧ:ММ)" Grid.Row="1" Grid.Column="2" Margin="6,3,0,3"/>
                 </Grid>
 
                 <TextBlock Text="Ответ сотрудникам организации" Style="{StaticResource SectionHeader}"/>
-                <TextBox x:Name="InternalBox" AcceptsReturn="True" TextWrapping="Wrap" Height="120" VerticalContentAlignment="Top" Margin="0,6,0,0"
+                <TextBox x:Name="InternalBox" AutomationProperties.Name="Ответ сотрудникам организации" AcceptsReturn="True" TextWrapping="Wrap" Height="120" VerticalContentAlignment="Top" Margin="0,6,0,0"
                          VerticalScrollBarVisibility="Auto"/>
 
                 <TextBlock Text="Ответ внешним отправителям" Style="{StaticResource SectionHeader}"/>
-                <ComboBox x:Name="AudienceCombo" Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="320">
+                <ComboBox x:Name="AudienceCombo" AutomationProperties.Name="Кому отвечать за пределами организации" Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="320">
                     <ComboBoxItem Content="Не отвечать внешним отправителям" Tag="None"/>
                     <ComboBoxItem Content="Только моим контактам" Tag="Known"/>
                     <ComboBoxItem Content="Всем внешним отправителям" Tag="All"/>
                 </ComboBox>
-                <TextBox x:Name="ExternalBox" AcceptsReturn="True" TextWrapping="Wrap" Height="120" VerticalContentAlignment="Top" Margin="0,8,0,0"
+                <TextBox x:Name="ExternalBox" AutomationProperties.Name="Ответ внешним отправителям" AcceptsReturn="True" TextWrapping="Wrap" Height="120" VerticalContentAlignment="Top" Margin="0,8,0,0"
                          VerticalScrollBarVisibility="Auto"/>
             </StackPanel>
         </ScrollViewer>

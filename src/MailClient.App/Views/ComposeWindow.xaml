@@ -59,7 +59,7 @@
 
             <TextBlock Text="От:" Style="{StaticResource Caption}" VerticalAlignment="Center" FontSize="13"
                        Visibility="{Binding HasMultipleAccounts, Converter={StaticResource BoolToVis}}"/>
-            <ComboBox Grid.Column="1" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" Margin="0,2" HorizontalAlignment="Left" MinWidth="300"
+            <ComboBox AutomationProperties.Name="От" Grid.Column="1" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" Margin="0,2" HorizontalAlignment="Left" MinWidth="300"
                       Visibility="{Binding HasMultipleAccounts, Converter={StaticResource BoolToVis}}">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
@@ -72,19 +72,19 @@
             <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,2">
                 <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Content="Скрытая копия" Command="{Binding ToggleBccCommand}"
                         Visibility="{Binding ShowBcc, Converter={StaticResource InvBoolToVis}}"/>
-                <TextBox x:Name="ToBox" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" ToolTip="Адреса через «;». Можно ввести имя — оно будет найдено в адресной книге."/>
+                <TextBox x:Name="ToBox" AutomationProperties.Name="Кому" Text="{Binding To, UpdateSourceTrigger=PropertyChanged}" ToolTip="Адреса через «;». Можно ввести имя — оно будет найдено в адресной книге."/>
             </DockPanel>
 
             <TextBlock Grid.Row="2" Text="Копия:" Style="{StaticResource Caption}" VerticalAlignment="Center" FontSize="13"/>
-            <TextBox x:Name="CcBox" Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBox x:Name="CcBox" AutomationProperties.Name="Копия" Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding Cc, UpdateSourceTrigger=PropertyChanged}"/>
 
             <TextBlock Grid.Row="3" Text="Скрытая:" Style="{StaticResource Caption}" VerticalAlignment="Center" FontSize="13"
                        Visibility="{Binding ShowBcc, Converter={StaticResource BoolToVis}}"/>
-            <TextBox x:Name="BccBox" Grid.Row="3" Grid.Column="1" Margin="0,2" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}"
+            <TextBox x:Name="BccBox" AutomationProperties.Name="Скрытая копия" Grid.Row="3" Grid.Column="1" Margin="0,2" Text="{Binding Bcc, UpdateSourceTrigger=PropertyChanged}"
                      Visibility="{Binding ShowBcc, Converter={StaticResource BoolToVis}}"/>
 
             <TextBlock Grid.Row="4" Text="Тема:" Style="{StaticResource Caption}" VerticalAlignment="Center" FontSize="13"/>
-            <TextBox x:Name="SubjectBox" Grid.Row="4" Grid.Column="1" Margin="0,2" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" FontWeight="SemiBold"/>
+            <TextBox x:Name="SubjectBox" AutomationProperties.Name="Тема" Grid.Row="4" Grid.Column="1" Margin="0,2" Text="{Binding Subject, UpdateSourceTrigger=PropertyChanged}" FontWeight="SemiBold"/>
         </Grid>
 
         <!-- attachments -->
@@ -276,7 +276,7 @@
                    Visibility="{Binding HasQuoteNote, Converter={StaticResource BoolToVis}}"/>
 
         <Grid>
-            <ctl:HtmlEditor x:Name="Editor" Margin="4,0"/>
+            <ctl:HtmlEditor x:Name="Editor" Margin="4,0" AutomationProperties.Name="Текст письма"/>
             <Popup x:Name="SuggestPopup" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
                 <Border Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1"
                         CornerRadius="6" Padding="2" MinWidth="360" MaxHeight="320">

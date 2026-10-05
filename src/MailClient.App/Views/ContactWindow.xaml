@@ -20,17 +20,17 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="Фамилия" Style="{StaticResource FieldLabel}"/>
-                        <TextBox x:Name="SurnameBox"/>
+                        <TextBox AutomationProperties.Name="Фамилия" x:Name="SurnameBox"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="Имя" Style="{StaticResource FieldLabel}"/>
-                        <TextBox x:Name="GivenBox"/>
+                        <TextBox AutomationProperties.Name="Имя" x:Name="GivenBox"/>
                     </StackPanel>
                 </Grid>
                 <TextBlock Text="Отображаемое имя (если отличается)" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="DisplayBox"/>
+                <TextBox AutomationProperties.Name="Отображаемое имя (если отличается)" x:Name="DisplayBox"/>
                 <TextBlock Text="Организация" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="CompanyBox"/>
+                <TextBox AutomationProperties.Name="Организация" x:Name="CompanyBox"/>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -39,23 +39,23 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="Должность" Style="{StaticResource FieldLabel}"/>
-                        <TextBox x:Name="TitleBox"/>
+                        <TextBox AutomationProperties.Name="Должность" x:Name="TitleBox"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="Подразделение" Style="{StaticResource FieldLabel}"/>
-                        <TextBox x:Name="DeptBox"/>
+                        <TextBox AutomationProperties.Name="Подразделение" x:Name="DeptBox"/>
                     </StackPanel>
                 </Grid>
                 <TextBlock Text="Электронная почта (до трёх адресов, через «;»)" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="EmailBox"/>
+                <TextBox AutomationProperties.Name="Электронная почта (до трёх адресов, через «;»)" x:Name="EmailBox"/>
                 <TextBlock Text="Рабочий телефон" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="WorkPhoneBox"/>
+                <TextBox AutomationProperties.Name="Рабочий телефон" x:Name="WorkPhoneBox"/>
                 <TextBlock Text="Мобильный телефон" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="MobileBox"/>
+                <TextBox AutomationProperties.Name="Мобильный телефон" x:Name="MobileBox"/>
                 <TextBlock Text="Домашний телефон" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="HomePhoneBox"/>
+                <TextBox AutomationProperties.Name="Домашний телефон" x:Name="HomePhoneBox"/>
                 <TextBlock Text="Заметки" Style="{StaticResource FieldLabel}"/>
-                <TextBox x:Name="NotesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="80" VerticalContentAlignment="Top"/>
+                <TextBox AutomationProperties.Name="Заметки" x:Name="NotesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="80" VerticalContentAlignment="Top"/>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>

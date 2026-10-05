@@ -95,6 +95,8 @@
 
     <!-- Flat toolbar button: icon (Tag) + text (Content) -->
     <Style x:Key="ToolButton" TargetType="Button">
+        <!-- Icon-only buttons: screen readers announce the tooltip text. -->
+        <Setter Property="AutomationProperties.Name" Value="{Binding ToolTip, RelativeSource={RelativeSource Self}}"/>
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Padding" Value="8,4"/>
@@ -106,7 +108,8 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}"
+                            BorderThickness="1" BorderBrush="Transparent">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="{TemplateBinding Tag}" FontFamily="{StaticResource Font.Icons}" FontSize="15"
                                        VerticalAlignment="Center" Foreground="{DynamicResource Brush.Accent}"/>
@@ -116,6 +119,9 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="Content" Value="{x:Null}">
                             <Setter TargetName="cp" Property="Margin" Value="0"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Brush.Accent}"/>
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="bd" Property="Background" Value="{DynamicResource Brush.Hover}"/>
@@ -131,6 +137,8 @@
 
     <!-- Compact formatting-toolbar button; content is an icon (TextBlock with the Icon style, or a vector Path). -->
     <Style x:Key="FormatButton" TargetType="ButtonBase">
+        <!-- Icon-only buttons: screen readers announce the tooltip text. -->
+        <Setter Property="AutomationProperties.Name" Value="{Binding ToolTip, RelativeSource={RelativeSource Self}}"/>
         <Setter Property="Foreground" Value="{DynamicResource Brush.Text}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderBrush" Value="Transparent"/>
@@ -240,7 +248,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
                     <Grid Background="Transparent">
-                        <Border x:Name="bd" CornerRadius="6" Margin="6,3"/>
+                        <Border x:Name="bd" CornerRadius="6" Margin="6,3" BorderThickness="1" BorderBrush="Transparent"/>
                         <Border x:Name="mark" Width="3" HorizontalAlignment="Left" Margin="2,14" CornerRadius="2"
                                 Background="{DynamicResource Brush.Accent}" Visibility="Collapsed"/>
                         <StackPanel VerticalAlignment="Center">
@@ -252,6 +260,9 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="bd" Property="Background" Value="{DynamicResource Brush.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Brush.Accent}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="mark" Property="Visibility" Value="Visible"/>
@@ -363,6 +374,7 @@
                     <Grid>
                         <ToggleButton Template="{StaticResource ComboToggle}" Focusable="False" ClickMode="Press"
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
+                        <Border x:Name="focus" CornerRadius="5" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False"/>
                         <ContentPresenter Margin="{TemplateBinding Padding}" IsHitTestVisible="False" VerticalAlignment="Center"
                                           Content="{TemplateBinding SelectionBoxItem}"
                                           ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
@@ -380,6 +392,14 @@
                             </Border>
                         </Popup>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="focus" Property="BorderBrush" Value="{DynamicResource Brush.Accent}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.55"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

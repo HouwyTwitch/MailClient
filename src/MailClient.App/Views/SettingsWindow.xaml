@@ -12,7 +12,7 @@
         </Border>
         <StackPanel Margin="24,12,24,20">
             <TextBlock Text="Оформление" Style="{StaticResource SectionHeader}"/>
-            <ComboBox x:Name="ThemeCombo" Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="240">
+            <ComboBox x:Name="ThemeCombo" AutomationProperties.Name="Тема оформления" Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="240">
                 <ComboBoxItem Content="Как в Windows" Tag="System"/>
                 <ComboBoxItem Content="Светлая тема" Tag="Light"/>
                 <ComboBoxItem Content="Тёмная тема" Tag="Dark"/>
@@ -21,7 +21,7 @@
             <TextBlock Text="Чтение" Style="{StaticResource SectionHeader}"/>
             <DockPanel Margin="0,6,0,0">
                 <TextBlock Text="Отмечать письмо прочитанным через" VerticalAlignment="Center"/>
-                <ComboBox x:Name="ReadDelayCombo" Margin="8,0,0,0" MinWidth="140" HorizontalAlignment="Left">
+                <ComboBox x:Name="ReadDelayCombo" AutomationProperties.Name="Отмечать письмо прочитанным через" Margin="8,0,0,0" MinWidth="140" HorizontalAlignment="Left">
                     <ComboBoxItem Content="сразу" Tag="0"/>
                     <ComboBoxItem Content="2 секунды" Tag="2"/>
                     <ComboBoxItem Content="5 секунд" Tag="5"/>

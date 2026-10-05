@@ -64,8 +64,15 @@ public partial class OofWindow : Window
     private async void Save_Click(object sender, RoutedEventArgs e)
     {
         var state = OnRadio.IsChecked == true ? OofState.Enabled : ScheduledRadio.IsChecked == true ? OofState.Scheduled : OofState.Disabled;
-        var start = Combine(StartDate.SelectedDate, StartTime.Text) ?? DateTimeOffset.Now;
-        var end = Combine(EndDate.SelectedDate, EndTime.Text) ?? DateTimeOffset.Now.AddDays(1);
+        var startValue = Combine(StartDate.SelectedDate, StartTime.Text);
+        var endValue = Combine(EndDate.SelectedDate, EndTime.Text);
+        if (state == OofState.Scheduled && (startValue == null || endValue == null))
+        {
+            Dialogs.Error("Укажите даты и время начала и окончания. Время — в формате ЧЧ:ММ, например 09:00.");
+            return;
+        }
+        var start = startValue ?? DateTimeOffset.Now;
+        var end = endValue ?? DateTimeOffset.Now.AddDays(1);
         if (state == OofState.Scheduled && end <= start)
         {
             Dialogs.Error("Дата окончания должна быть позже даты начала.");

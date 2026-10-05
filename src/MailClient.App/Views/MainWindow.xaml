@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:MailClient.App.ViewModels"
-        xmlns:ctl="clr-namespace:MailClient.App.Controls"
+        xmlns:local="clr-namespace:MailClient.App.Views"
         Style="{StaticResource AppWindow}"
         Title="{Binding WindowTitle}" Icon="/Assets/app.ico"
         MinWidth="900" MinHeight="560"
@@ -43,7 +43,7 @@
                                  IsChecked="{Binding Section, Converter={StaticResource EnumEquals}, ConverterParameter=Contacts}"/>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,8">
-                    <Button Style="{StaticResource ToolButton}" Tag="&#xE9CA;" ToolTip="Автоответ (нет на месте)" HorizontalAlignment="Center"
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE709;" ToolTip="Автоответ (нет на месте)" HorizontalAlignment="Center"
                             Visibility="{Binding SupportsOutOfOffice, Converter={StaticResource BoolToVis}}"
                             Command="{Binding OpenOutOfOfficeCommand}"/>
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE713;" ToolTip="Параметры" HorizontalAlignment="Center" Click="SettingsButton_Click">
@@ -85,7 +85,7 @@
                         <TextBlock Text="Новое письмо" Margin="8,0,0,0" FontWeight="SemiBold"/>
                     </StackPanel>
                 </Button>
-                <TreeView x:Name="FolderTree" ItemsSource="{Binding Roots}" Padding="4,0,4,8" AllowDrop="True"
+                <TreeView x:Name="FolderTree" AutomationProperties.Name="Папки" ItemsSource="{Binding Roots}" Padding="4,0,4,8" AllowDrop="True"
                           SelectedItemChanged="FolderTree_SelectedItemChanged"
                           PreviewMouseRightButtonDown="FolderTree_PreviewMouseRightButtonDown"
                           DragOver="FolderTree_DragOver" DragLeave="FolderTree_DragLeave" Drop="FolderTree_Drop">
@@ -152,7 +152,7 @@
             <DockPanel Grid.Column="2" Background="{DynamicResource Brush.Surface}">
                 <StackPanel DockPanel.Dock="Top" Margin="12,12,12,6">
                     <Grid>
-                        <TextBox x:Name="SearchBox" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Padding="30,5,28,5"
+                        <TextBox x:Name="SearchBox" AutomationProperties.Name="Поиск в папке" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Padding="30,5,28,5"
                                  ToolTip="Поиск в текущей папке (Ctrl+E). Нажмите Enter для поиска.">
                             <TextBox.InputBindings>
                                 <KeyBinding Key="Enter" Command="{Binding SearchCommand}"/>
@@ -176,7 +176,7 @@
                 </StackPanel>
 
                 <Grid>
-                    <ListBox x:Name="MessageList" ItemsSource="{Binding Messages}" SelectedItem="{Binding SelectedMessage}"
+                    <ListBox x:Name="MessageList" AutomationProperties.Name="Список писем" ItemsSource="{Binding Messages}" SelectedItem="{Binding SelectedMessage}"
                              SelectionMode="Extended" SelectionChanged="MessageList_SelectionChanged"
                              PreviewMouseLeftButtonDown="MessageList_PreviewMouseLeftButtonDown"
                              PreviewMouseMove="MessageList_PreviewMouseMove"
@@ -271,22 +271,22 @@
                 <!-- command bar -->
                 <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="8,6">
                     <WrapPanel>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8CA;" Content="Ответить" Command="{Binding ReplyCommand}" ToolTip="Ответить (Ctrl+R)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8C2;" Content="Ответить всем" Command="{Binding ReplyAllCommand}" ToolTip="Ответить всем (Ctrl+Shift+R)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE89C;" Content="Переслать" Command="{Binding ForwardCommand}" ToolTip="Переслать (Ctrl+F)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8CA;" Content="Ответить" IsEnabled="{Binding HasSelection}" Command="{Binding ReplyCommand}" ToolTip="Ответить (Ctrl+R)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8C2;" Content="Ответить всем" IsEnabled="{Binding HasSelection}" Command="{Binding ReplyAllCommand}" ToolTip="Ответить всем (Ctrl+Shift+R)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE89C;" Content="Переслать" IsEnabled="{Binding HasSelection}" Command="{Binding ForwardCommand}" ToolTip="Переслать (Ctrl+F)"/>
                         <Rectangle Width="1" Height="20" Margin="6,0" Fill="{DynamicResource Brush.Border}"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="Удалить" Command="{Binding DeleteCommand}" ToolTip="Удалить (Delete)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8DE;" Content="Переместить" Command="{Binding MoveToCommand}" ToolTip="Переместить в папку"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE7BA;" Command="{Binding MarkAsJunkCommand}" ToolTip="В нежелательную почту"
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="Удалить" IsEnabled="{Binding HasSelection}" Command="{Binding DeleteCommand}" ToolTip="Удалить (Delete)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8DE;" Content="Переместить" IsEnabled="{Binding HasSelection}" Command="{Binding MoveToCommand}" ToolTip="Переместить в папку"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE7BA;" IsEnabled="{Binding HasSelection}" Command="{Binding MarkAsJunkCommand}" ToolTip="В нежелательную почту"
                                 Visibility="{Binding IsJunkFolder, Converter={StaticResource InvBoolToVis}}"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE930;" Content="Не спам" Command="{Binding MarkAsJunkCommand}"
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE930;" Content="Не спам" IsEnabled="{Binding HasSelection}" Command="{Binding MarkAsJunkCommand}"
                                 ToolTip="Вернуть во «Входящие» и не считать отправителя спамером"
                                 Visibility="{Binding IsJunkFolder, Converter={StaticResource BoolToVis}}"/>
                         <Rectangle Width="1" Height="20" Margin="6,0" Fill="{DynamicResource Brush.Border}"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8C3;" Command="{Binding MarkReadCommand}" ToolTip="Отметить как прочитанное (Ctrl+Q)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE715;" Command="{Binding MarkUnreadCommand}" ToolTip="Отметить как непрочитанное (Ctrl+U)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE7C1;" Command="{Binding ToggleFlagCommand}" ToolTip="Флажок (Insert)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE749;" Click="Print_Click" ToolTip="Печать"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8C3;" IsEnabled="{Binding HasSelection}" Command="{Binding MarkReadCommand}" ToolTip="Отметить как прочитанное (Ctrl+Q)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE715;" IsEnabled="{Binding HasSelection}" Command="{Binding MarkUnreadCommand}" ToolTip="Отметить как непрочитанное (Ctrl+U)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE7C1;" IsEnabled="{Binding HasSelection}" Command="{Binding ToggleFlagCommand}" ToolTip="Флажок (Insert)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE749;" Click="Print_Click" ToolTip="Печать (Ctrl+P)" IsEnabled="{Binding HasPreview}"/>
                         <Button Style="{StaticResource ToolButton}" Tag="&#xE72C;" Command="{Binding RefreshCommand}" ToolTip="Обновить (F5)"/>
                     </WrapPanel>
                 </Border>
@@ -295,112 +295,8 @@
                     <TextBlock Text="Выберите письмо для просмотра" Style="{StaticResource Caption}" FontSize="14"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                Visibility="{Binding HasPreview, Converter={StaticResource InvBoolToVis}}"/>
-                    <DockPanel DataContext="{Binding Preview}" Visibility="{Binding DataContext.HasPreview, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
-                        <!-- header -->
-                        <StackPanel DockPanel.Dock="Top" Margin="20,16,20,8">
-                            <TextBlock Text="{Binding Subject}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                            <Grid Margin="0,12,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource Brush.AccentSoft}" VerticalAlignment="Top">
-                                    <TextBlock Text="{Binding FromInitials}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}"/>
-                                </Border>
-                                <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                                    <DockPanel>
-                                        <TextBlock DockPanel.Dock="Right" Text="{Binding DateText}" Style="{StaticResource Caption}" Margin="8,2,0,0"/>
-                                        <TextBox Text="{Binding FromText, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
-                                                 Padding="0" MinHeight="0" FontWeight="SemiBold" FontSize="14"/>
-                                    </DockPanel>
-                                    <TextBlock Text="{Binding OnBehalfText}" Style="{StaticResource Caption}" Visibility="{Binding IsSentOnBehalf, Converter={StaticResource BoolToVis}}"/>
-                                    <DockPanel Margin="0,3,0,0">
-                                        <TextBlock Text="Кому: " Style="{StaticResource Caption}"/>
-                                        <TextBox Text="{Binding ToText, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
-                                                 MinHeight="0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextSecondary}"/>
-                                    </DockPanel>
-                                    <DockPanel Visibility="{Binding HasCc, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock Text="Копия: " Style="{StaticResource Caption}"/>
-                                        <TextBox Text="{Binding CcText, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0"
-                                                 MinHeight="0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource Brush.TextSecondary}"/>
-                                    </DockPanel>
-                                    <TextBlock Text="Высокая важность" Foreground="{DynamicResource Brush.Danger}" FontSize="12" Margin="0,3,0,0"
-                                               Visibility="{Binding IsHighImportance, Converter={StaticResource BoolToVis}}"/>
-                                </StackPanel>
-                            </Grid>
-                        </StackPanel>
-
-                        <!-- meeting request -->
-                        <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="20,4,20,6" Padding="12,10"
-                                Visibility="{Binding IsMeetingRequest, Converter={StaticResource BoolToVis}}">
-                            <DockPanel>
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE787;" FontSize="20" Margin="0,0,12,0" Foreground="{DynamicResource Brush.Accent}"/>
-                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Button Content="Принять" Style="{StaticResource AccentButton}" Margin="4,0" Command="{Binding RespondCommand}" CommandParameter="Accept"/>
-                                    <Button Content="Под вопросом" Margin="4,0" Command="{Binding RespondCommand}" CommandParameter="Tentative"/>
-                                    <Button Content="Отклонить" Margin="4,0" Command="{Binding RespondCommand}" CommandParameter="Decline"/>
-                                </StackPanel>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Приглашение на встречу" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding MeetingText}" Style="{StaticResource Caption}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </DockPanel>
-                        </Border>
-                        <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Banner}" Margin="20,4,20,6" Padding="12,8" CornerRadius="6"
-                                Visibility="{Binding IsMeetingCancellation, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="Встреча отменена организатором." Foreground="{DynamicResource Brush.BannerText}"/>
-                        </Border>
-
-                        <!-- blocked remote content -->
-                        <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Banner}" Margin="20,4,20,6" Padding="12,6" CornerRadius="6"
-                                Visibility="{Binding ShowRemoteBanner, Converter={StaticResource BoolToVis}}">
-                            <DockPanel>
-                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                    <Button Content="Показать изображения" Margin="4,0" Padding="10,3" MinHeight="26" Command="{Binding ShowRemoteContentCommand}"/>
-                                    <Button Content="Всегда для этого отправителя" Margin="4,0" Padding="10,3" MinHeight="26" Command="{Binding TrustSenderCommand}"/>
-                                </StackPanel>
-                                <TextBlock Text="Изображения из интернета заблокированы для защиты конфиденциальности." VerticalAlignment="Center"
-                                           TextWrapping="Wrap" Foreground="{DynamicResource Brush.BannerText}"/>
-                            </DockPanel>
-                        </Border>
-
-                        <!-- attachments -->
-                        <DockPanel DockPanel.Dock="Top" Margin="18,2,18,8" Visibility="{Binding HasAttachments, Converter={StaticResource BoolToVis}}">
-                            <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Tag="&#xE896;" Content="Сохранить все"
-                                    VerticalAlignment="Top" Command="{Binding SaveAllAttachmentsCommand}"/>
-                            <ItemsControl ItemsSource="{Binding Attachments}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type vm:AttachmentItemViewModel}">
-                                        <Border Style="{StaticResource Card}" Margin="2" Padding="0" CornerRadius="6">
-                                            <StackPanel Orientation="Horizontal">
-                                                <Button Style="{StaticResource ToolButton}" Tag="{Binding Icon}" ToolTip="Открыть"
-                                                        Command="{Binding DataContext.OpenAttachmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}">
-                                                    <StackPanel MaxWidth="220">
-                                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Text="{Binding SizeText}" Style="{StaticResource Caption}" FontSize="11"/>
-                                                    </StackPanel>
-                                                </Button>
-                                                <Button Style="{StaticResource ToolButton}" Tag="&#xE896;" ToolTip="Сохранить как…" Padding="6,4"
-                                                        Command="{Binding DataContext.SaveAttachmentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                        CommandParameter="{Binding}"/>
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </DockPanel>
-
-                        <Border BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0">
-                            <ctl:MessageBodyView x:Name="BodyView" Html="{Binding Html}"/>
-                        </Border>
-                    </DockPanel>
+                    <local:MessagePreviewView x:Name="PreviewView" DataContext="{Binding Preview}"
+                                              Visibility="{Binding DataContext.HasPreview, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
                 </Grid>
             </DockPanel>
         </Grid>
@@ -423,7 +319,7 @@
                             </StackPanel>
                         </Button>
                     </DockPanel>
-                    <TextBox Margin="0,12,0,0" Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}"
+                    <TextBox Margin="0,12,0,0" Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Поиск контактов"
                              ToolTip="Фильтр по моим контактам. Enter — поиск в адресной книге организации.">
                         <TextBox.InputBindings>
                             <KeyBinding Key="Enter" Command="{Binding SearchDirectoryCommand}"/>
