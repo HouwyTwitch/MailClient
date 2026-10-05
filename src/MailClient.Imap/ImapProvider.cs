@@ -90,7 +90,19 @@ public sealed class ImapProvider : IMailProvider
         if (client is SmtpClient smtp && !smtp.Capabilities.HasFlag(SmtpCapabilities.Authentication)) return;
         try
         {
-            await client.AuthenticateAsync(Credential(), ct).ConfigureAwait(false);
+            // Like Thunderbird's "normal password": a single attempt with one method (AUTH PLAIN, else AUTH LOGIN,
+            // else the IMAP LOGIN command). MailKit's default would try every mechanism in turn after a rejection,
+            // and repeated failed logins lock the account.
+            var credential = Credential();
+            if (client.AuthenticationMechanisms.Contains("PLAIN"))
+                await client.AuthenticateAsync(new SaslMechanismPlain(credential), ct).ConfigureAwait(false);
+            else if (client.AuthenticationMechanisms.Contains("LOGIN"))
+                await client.AuthenticateAsync(new SaslMechanismLogin(credential), ct).ConfigureAwait(false);
+            else
+            {
+                client.AuthenticationMechanisms.Clear(); // IMAP LOGIN command only
+                await client.AuthenticateAsync(credential, ct).ConfigureAwait(false);
+            }
         }
         catch (AuthenticationException ex)
         {

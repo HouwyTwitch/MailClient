@@ -49,7 +49,7 @@
                 <StackPanel x:Name="PasswordPanel">
                     <TextBlock Text="Имя пользователя" Style="{StaticResource FieldLabel}"/>
                     <TextBox x:Name="UserBox" ToolTip="Например: ДОМЕН\ivanov, ivanov@corp.local или адрес почты"/>
-                    <TextBlock x:Name="UserHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap" Text="Логин Windows (ДОМЕН\логин или логин@домен). Он может отличаться от адреса почты — при проверке подключения программа попробует несколько вариантов."/>
+                    <TextBlock x:Name="UserHint" Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap" Text="Логин Windows (ДОМЕН\логин или логин@домен). Он может отличаться от адреса почты — вводите так же, как в Thunderbird."/>
                     <TextBlock Text="Пароль" Style="{StaticResource FieldLabel}"/>
                     <PasswordBox x:Name="PasswordBox"/>
                     <DockPanel Margin="0,3,0,0">

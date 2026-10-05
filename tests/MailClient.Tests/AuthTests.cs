@@ -95,6 +95,30 @@ public class AuthTests
         Assert.Contains("NTLM", ex.Message);
     }
 
+    [Fact]
+    public async Task Autodiscover_stops_after_credentials_are_rejected_once()
+    {
+        var handler = new RejectsLogin();
+        var client = new AutodiscoverClient(() => new HttpClient(handler), new HttpClient(handler));
+        await Assert.ThrowsAsync<MailAuthenticationException>(() => client.DiscoverAsync("ivanov@company.ru"));
+        Assert.Equal(1, handler.Posts);
+    }
+
+    /// <summary>Simulates HttpClientHandler having sent NTLM credentials that the server rejected.</summary>
+    private sealed class RejectsLogin : HttpMessageHandler
+    {
+        public int Posts;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.Method == HttpMethod.Get) throw new HttpRequestException("no http");
+            Posts++;
+            request.Headers.Authorization = new AuthenticationHeaderValue("NTLM", "TlRMTVNTUAADAAAA");
+            var r = new HttpResponseMessage(HttpStatusCode.Unauthorized) { RequestMessage = request };
+            r.Headers.WwwAuthenticate.Add(new AuthenticationHeaderValue("NTLM"));
+            return Task.FromResult(r);
+        }
+    }
+
     private sealed class OnlyUnauthorized : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)

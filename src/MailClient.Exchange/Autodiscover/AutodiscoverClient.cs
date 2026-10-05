@@ -71,6 +71,9 @@ public sealed class AutodiscoverClient
             {
                 var outcome = await TryEndpointAsync(client, url, email, 0, ct).ConfigureAwait(false);
                 if (outcome.Result != null) return outcome.Result;
+                // Like Thunderbird: one login attempt. Once a server has rejected our credentials, they are not sent
+                // to further addresses — repeated failed logins lock the domain account.
+                if (outcome.LoginRejected) throw new MailAuthenticationException(LastAuthFailure!);
                 if (outcome.RedirectAddress != null)
                 {
                     nextEmail = outcome.RedirectAddress;
@@ -88,7 +91,7 @@ public sealed class AutodiscoverClient
             "(обычно https://mail.<ваш-домен>/EWS/Exchange.asmx) или уточните его у администратора.", "AutodiscoverFailed");
     }
 
-    private sealed record Outcome(AutodiscoverResult? Result, string? RedirectAddress);
+    private sealed record Outcome(AutodiscoverResult? Result, string? RedirectAddress, bool LoginRejected = false);
 
     private async Task<Outcome> TryEndpointAsync(HttpClient client, string url, string email, int depth, CancellationToken ct)
     {
@@ -115,10 +118,13 @@ public sealed class AutodiscoverClient
             }
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                // Keep trying the other endpoints: e.g. https://domain/ may be an unrelated web site.
-                Log.Add($"{url} → 401 Unauthorized ({string.Join(", ", response.Headers.WwwAuthenticate.Select(h => h.Scheme))})");
+                // Credentials sent and rejected: stop. A 401 without our credentials having been tried (e.g. an
+                // unrelated web site at https://domain/ asking for another scheme) lets the next endpoint be tried.
+                bool credentialsSent = request.Headers.Authorization != null;
+                Log.Add($"{url} → 401 Unauthorized ({string.Join(", ", response.Headers.WwwAuthenticate.Select(h => h.Scheme))})" +
+                        (credentialsSent ? ", login rejected" : ""));
                 LastAuthFailure ??= Http.ExchangeHttp.DescribeAuthFailure(response);
-                return new Outcome(null, null);
+                return new Outcome(null, null, credentialsSent);
             }
             if (!response.IsSuccessStatusCode)
             {

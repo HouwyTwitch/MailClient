@@ -101,13 +101,23 @@ public sealed class AccountSession : IDisposable
             catch (MailAuthenticationException ex)
             {
                 Log.Warn($"[{Settings.EmailAddress}] Ошибка входа: {ex.Message}");
-                SetStatus("Ошибка входа — проверьте пароль", false);
                 if (!_authErrorReported)
                 {
                     _authErrorReported = true;
                     AuthenticationFailed?.Invoke(this, EventArgs.Empty);
                 }
-                failures++;
+                // Like Thunderbird: a rejected login is not retried on a timer — repeated failed logins lock the
+                // domain account. The next attempt happens only when the user asks (sync now, new password).
+                SetStatus("Ошибка входа — проверьте пароль (нажмите «Обновить» для повторной попытки)", false);
+                try
+                {
+                    await _wake.WaitAsync(ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                continue;
             }
             catch (Exception ex)
             {

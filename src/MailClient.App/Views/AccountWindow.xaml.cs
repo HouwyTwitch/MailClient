@@ -110,7 +110,7 @@ public partial class AccountWindow : Window
             : "Компьютер не входит в домен: введите имя пользователя (ДОМЕН\\логин) и пароль.";
         UserHint.Text = imap
             ? "Обычно это полный адрес электронной почты."
-            : "Логин Windows (ДОМЕН\\логин или логин@домен). Он может отличаться от адреса почты — при проверке подключения программа попробует несколько вариантов.";
+            : "Логин Windows (ДОМЕН\\логин или логин@домен). Он может отличаться от адреса почты — вводите так же, как в Thunderbird.";
     }
 
     private void ApplyPreset(MailPresets.Preset p)
@@ -320,36 +320,6 @@ public partial class AccountWindow : Window
         finally { SetBusy(false); }
     }
 
-    /// <summary>
-    /// Alternative login spellings tried automatically when the server rejects the one entered:
-    /// the Windows login often differs from the e-mail address.
-    /// </summary>
-    private static IEnumerable<(string user, string domain)> LoginVariants(AccountSettings a)
-    {
-        if (a.Protocol == MailProtocol.Imap)
-        {
-            var login = string.IsNullOrWhiteSpace(a.UserName) ? a.EmailAddress : a.UserName.Trim();
-            return new[] { (login, ""), (a.EmailAddress, ""), (a.EmailAddress.Split('@')[0], "") }
-                .Where(v => v.Item1.Length > 0).DistinctBy(v => v.Item1.ToLowerInvariant());
-        }
-        var entered = string.IsNullOrWhiteSpace(a.UserName) ? a.EmailAddress : a.UserName.Trim();
-        var local = a.EmailAddress.Split('@')[0];
-        var mailDomain = a.EmailAddress.Contains('@') ? a.EmailAddress.Split('@')[1] : "";
-        var bareUser = entered.Contains('\\') ? entered[(entered.IndexOf('\\') + 1)..] : entered.Split('@')[0];
-        var netbios = a.Domain.Length > 0 ? a.Domain : mailDomain.Split('.')[0].ToUpperInvariant();
-
-        var list = new List<(string, string)>
-        {
-            (entered, a.Domain),
-            (a.EmailAddress, ""),
-            ($"{bareUser}@{mailDomain}", ""),
-            ($"{netbios}\\{bareUser}", ""),
-            ($"{netbios}\\{local}", ""),
-        };
-        return list.Where(v => v.Item1.Length > 0 && !v.Item1.StartsWith('@') && !v.Item1.EndsWith('@') && !v.Item1.StartsWith('\\'))
-                   .DistinctBy(v => (v.Item1.ToLowerInvariant(), v.Item2.ToLowerInvariant()));
-    }
-
     private static string SchemeName(HttpAuthScheme s) => s switch
     {
         HttpAuthScheme.Ntlm => "NTLM",
@@ -357,16 +327,6 @@ public partial class AccountWindow : Window
         HttpAuthScheme.Basic => "Basic",
         _ => "автоматически",
     };
-
-    /// <summary>The chosen scheme first (Thunderbird uses exactly one), then the alternatives.</summary>
-    private static IReadOnlyList<HttpAuthScheme> SchemesToTry(AccountSettings a, bool havePassword)
-    {
-        if (a.Protocol == MailProtocol.Imap) return new[] { HttpAuthScheme.Auto };
-        return new[] { a.AuthScheme, HttpAuthScheme.Ntlm, HttpAuthScheme.Auto, HttpAuthScheme.Negotiate, HttpAuthScheme.Basic }
-            .Distinct()
-            .Where(s => havePassword || s != HttpAuthScheme.Basic)
-            .ToList();
-    }
 
     private async Task<(MailboxInfo? info, Exception? error)> TryConnectAsync(AccountSettings attempt, string password)
     {
@@ -381,90 +341,40 @@ public partial class AccountWindow : Window
         }
     }
 
+    /// <summary>
+    /// Like Thunderbird: exactly one login attempt with exactly the entered settings (login, domain, the selected
+    /// authentication method; an empty password means the logged-on Windows user). No other spellings or
+    /// methods are tried — repeated failed logins would lock the domain account.
+    /// </summary>
     private async Task<bool> TestAsync(AccountSettings a, bool showSuccess)
     {
         var password = EffectivePassword();
-        bool havePassword = password.Length > 0;
-
-        // 1) What Thunderbird would do with these settings; 2) other login spellings and schemes;
-        // 3) on a domain PC, the logged-on Windows user (empty password), as Thunderbird does when none is stored.
-        var attempts = new List<(AccountSettings settings, string password)>();
-        var variants = havePassword ? LoginVariants(a).ToList() : new() { (a.UserName, a.Domain) };
-        foreach (var scheme in SchemesToTry(a, havePassword))
-            foreach (var (user, domain) in variants)
-            {
-                var attempt = a.Clone();
-                attempt.UserName = user;
-                attempt.Domain = domain;
-                attempt.AuthScheme = scheme;
-                attempts.Add((attempt, password));
-            }
-        if (havePassword && a.Protocol == MailProtocol.Exchange && IsDomainJoined)
+        var who = password.Length == 0 && a.Protocol == MailProtocol.Exchange
+            ? $"учётная запись Windows ({WindowsAccount})"
+            : $"«{(string.IsNullOrWhiteSpace(a.UserName) ? a.EmailAddress : a.UserName)}»";
+        var (info, error) = await TryConnectAsync(a, password);
+        if (info == null)
         {
-            foreach (var scheme in new[] { HttpAuthScheme.Ntlm, HttpAuthScheme.Auto })
-            {
-                var sso = a.Clone();
-                sso.AuthScheme = scheme;
-                attempts.Add((sso, ""));
-            }
+            Log.Warn($"Проверка подключения: {who}, аутентификация {SchemeName(a.AuthScheme)}: {error!.Message}");
+            Dialogs.Error(error, "Не удалось подключиться к серверу");
+            return false;
         }
 
-        Exception? firstError = null;
-        foreach (var (attempt, pw) in attempts)
+        Log.Info($"Проверка подключения успешна: {a.EmailAddress} — {who}, аутентификация {SchemeName(a.AuthScheme)}, сервер {info.ServerVersion}");
+        var changes = new List<string>();
+        // Like Thunderbird, learn the schema version from the server's ServerVersionInfo header.
+        if (a.Protocol == MailProtocol.Exchange && ExchangeProvider.SuggestVersion(info.ServerVersion) is { } version
+            && version != a.ServerVersion)
         {
-            var who = pw.Length == 0 ? $"учётная запись Windows ({WindowsAccount})" : $"«{attempt.UserName}»";
-            var (info, error) = await TryConnectAsync(attempt, pw);
-            if (info != null)
-            {
-                Log.Info($"Проверка подключения успешна: {a.EmailAddress} — {who}, протокол {SchemeName(attempt.AuthScheme)}, сервер {info.ServerVersion}");
-                var changes = new List<string>();
-                if (havePassword && pw.Length == 0)
-                {
-                    // The server accepted the Windows logon: do not store a password, like Thunderbird.
-                    _forgetStoredPassword = true;
-                    _passwordChanged = false;
-                    PasswordBox.Clear();
-                    changes.Add($"вход под учётной записью Windows ({WindowsAccount}) без сохранения пароля");
-                }
-                else if (!string.Equals(attempt.UserName, a.UserName, StringComparison.OrdinalIgnoreCase) || attempt.Domain != a.Domain)
-                {
-                    UserBox.Text = attempt.UserName;
-                    DomainBox.Text = attempt.Domain;
-                    changes.Add($"имя пользователя «{attempt.UserName}»");
-                }
-                if (attempt.Protocol == MailProtocol.Exchange && attempt.AuthScheme != a.AuthScheme)
-                {
-                    Select(AuthCombo, attempt.AuthScheme.ToString());
-                    changes.Add($"аутентификация {SchemeName(attempt.AuthScheme)}");
-                }
-                // Like Thunderbird, learn the schema version from the server's ServerVersionInfo header.
-                if (attempt.Protocol == MailProtocol.Exchange && ExchangeProvider.SuggestVersion(info.ServerVersion) is { } version
-                    && version != a.ServerVersion)
-                {
-                    Select(VersionCombo, version.ToString());
-                    changes.Add($"версия Exchange по ответу сервера ({info.ServerVersion})");
-                }
-                ApplyProtocolUi();
-                if (showSuccess || changes.Count > 0)
-                    Dialogs.Info("Подключение установлено." +
-                                 (changes.Count > 0 ? $"\n\nПодобрано и сохранено в настройках: {string.Join("; ", changes)}." : "") +
-                                 $"\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
-                return true;
-            }
-
-            Log.Warn($"Вход: {who}, аутентификация {SchemeName(attempt.AuthScheme)}: {error!.Message}");
-            if (error is not MailAuthenticationException)
-            {
-                firstError = error;
-                break; // network, certificate or URL problem - other credentials will not help
-            }
-            firstError ??= error;
-            if (error.Message.Contains("OAuth") || error.Message.StartsWith("SMTP")) break;
+            Select(VersionCombo, version.ToString());
+            changes.Add($"версия Exchange по ответу сервера ({info.ServerVersion})");
         }
-
-        Log.Warn($"Проверка подключения не удалась ({attempts.Count} вариантов): {firstError?.Message}");
-        Dialogs.Error(firstError!, $"Не удалось подключиться к серверу (проверено вариантов входа: {attempts.Count}; подробности — в журнале)");
-        return false;
+        ApplyProtocolUi();
+        if (showSuccess || changes.Count > 0)
+            Dialogs.Info("Подключение установлено." +
+                         (changes.Count > 0 ? $"\n\nУстановлено в настройках: {string.Join("; ", changes)}." : "") +
+                         $"\n\nПочтовый ящик: {info.EmailAddress}\nВерсия сервера: {info.ServerVersion}");
+        return true;
     }
 
     private async void Test_Click(object sender, RoutedEventArgs e)
