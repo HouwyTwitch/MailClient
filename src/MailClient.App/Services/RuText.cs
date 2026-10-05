@@ -37,6 +37,20 @@ public static class RuText
     public static string FullDate(DateTimeOffset date) =>
         date.ToLocalTime().ToString("dddd, d MMMM yyyy г., HH:mm", Culture);
 
+    private static readonly char[] NameSeparators = [' ', '.', '@'];
+
+    /// <summary>One or two capital letters for an avatar ("Иванов Иван" → "ИИ"); "?" when there is no name.</summary>
+    public static string Initials(string name)
+    {
+        var parts = name.Split(NameSeparators, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            0 => "?",
+            1 => parts[0][..1].ToUpperInvariant(),
+            _ => (parts[0][..1] + parts[1][..1]).ToUpperInvariant(),
+        };
+    }
+
     public static string Size(long bytes)
     {
         if (bytes < 1024) return $"{bytes} Б";

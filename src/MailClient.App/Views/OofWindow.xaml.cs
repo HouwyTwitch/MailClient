@@ -11,6 +11,8 @@ namespace MailClient.App.Views;
 
 public partial class OofWindow : Window
 {
+    private static readonly string[] TimeFormats = [@"h\:mm", @"hh\:mm"];
+
     private readonly AccountSession _session;
 
     public OofWindow(AccountSession session)
@@ -30,9 +32,9 @@ public partial class OofWindow : Window
             OnRadio.IsChecked = s.State == OofState.Enabled;
             ScheduledRadio.IsChecked = s.State == OofState.Scheduled;
             StartDate.SelectedDate = s.StartTime.LocalDateTime.Date;
-            StartTime.Text = s.StartTime.LocalDateTime.ToString("HH:mm");
+            StartTime.Text = s.StartTime.LocalDateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
             EndDate.SelectedDate = s.EndTime.LocalDateTime.Date;
-            EndTime.Text = s.EndTime.LocalDateTime.ToString("HH:mm");
+            EndTime.Text = s.EndTime.LocalDateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
             InternalBox.Text = ToPlain(s.InternalReply);
             ExternalBox.Text = ToPlain(s.ExternalReply);
             AudienceCombo.SelectedItem = AudienceCombo.Items.OfType<ComboBoxItem>().First(i => (string)i.Tag == s.ExternalAudience.ToString());
@@ -55,7 +57,7 @@ public partial class OofWindow : Window
     private static DateTimeOffset? Combine(DateTime? date, string time)
     {
         if (date is not { } d) return null;
-        if (!TimeSpan.TryParseExact(time.Trim(), new[] { @"h\:mm", @"hh\:mm" }, CultureInfo.InvariantCulture, out var t)) return null;
+        if (!TimeSpan.TryParseExact(time.Trim(), TimeFormats, CultureInfo.InvariantCulture, out var t)) return null;
         return new DateTimeOffset(d.Date + t);
     }
 

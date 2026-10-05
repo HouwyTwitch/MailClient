@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailClient.Core.Models;
 using MailClient.Core.Services;
 using MailClient.Imap;
@@ -23,7 +24,6 @@ public class ImapIntegrationTests
         private readonly string _password;
         public Creds(string password) => _password = password;
         public string? GetPassword(Guid accountId) => _password;
-        public Task<string> GetAccessTokenAsync(AccountSettings account, bool forceRefresh, CancellationToken ct) => throw new NotSupportedException();
     }
 
     private static AccountSettings Account(bool withCa = true) => new()
@@ -32,10 +32,10 @@ public class ImapIntegrationTests
         EmailAddress = Env("IMAP_TEST_USER"),
         DisplayName = "Иванов Иван",
         ImapHost = Env("IMAP_TEST_HOST", "localhost"),
-        ImapPort = int.Parse(Env("IMAP_TEST_PORT", "993")),
+        ImapPort = int.Parse(Env("IMAP_TEST_PORT", "993"), CultureInfo.InvariantCulture),
         ImapSecurity = ConnectionSecurity.SslOnConnect,
         SmtpHost = Env("IMAP_TEST_HOST", "localhost"),
-        SmtpPort = int.Parse(Env("SMTP_TEST_PORT", "25")),
+        SmtpPort = int.Parse(Env("SMTP_TEST_PORT", "25"), CultureInfo.InvariantCulture),
         SmtpSecurity = ConnectionSecurity.None,
         TrustedRootCertificatesPem = withCa ? File.ReadAllText(Env("IMAP_TEST_CA")) : "",
     };
@@ -141,7 +141,7 @@ public class ImapIntegrationTests
         var renamed = (await p.GetFoldersAsync(TestContext.Current.CancellationToken)).Single(f => f.DisplayName == "Проекты 2026");
         Assert.Equal(1, renamed.TotalCount);
         await p.DeleteFolderAsync(renamed.Id, permanent: true, ct: TestContext.Current.CancellationToken);
-        Assert.DoesNotContain(await p.GetFoldersAsync(TestContext.Current.CancellationToken), f => f.DisplayName.StartsWith("Проекты"));
+        Assert.DoesNotContain(await p.GetFoldersAsync(TestContext.Current.CancellationToken), f => f.DisplayName.StartsWith("Проекты", StringComparison.Ordinal));
 
         // Deletion goes to Trash and is seen by sync.
         var hello = all.Single(m => m.Subject == "Привет");

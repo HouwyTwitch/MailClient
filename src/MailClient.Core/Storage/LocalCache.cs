@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using MailClient.Core.Models;
 using Microsoft.Data.Sqlite;
@@ -354,7 +355,7 @@ public sealed class LocalCache
         using var cmd = c.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM messages WHERE folder_id=$f";
         cmd.Parameters.AddWithValue("$f", folderId);
-        return Convert.ToInt32(cmd.ExecuteScalar());
+        return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
     // ------------------------------------------------------------------ bodies

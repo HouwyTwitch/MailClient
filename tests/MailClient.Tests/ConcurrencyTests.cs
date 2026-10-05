@@ -4,7 +4,7 @@ using Xunit;
 
 namespace MailClient.Tests;
 
-public class ConcurrencyTests : IDisposable
+public sealed class ConcurrencyTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"mc-conc-{Guid.NewGuid():N}.db");
 

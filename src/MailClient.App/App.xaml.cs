@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.IO;
-using System.Threading;
 using System.Windows;
 using System.Windows.Markup;
 using System.Windows.Threading;
@@ -10,6 +9,8 @@ using MailClient.App.Views;
 
 namespace MailClient.App;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2213", Justification = "Disposed in OnExit")]
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001", Justification = "A WPF Application ends in OnExit, where its resources are released")]
 public partial class App : Application
 {
     private const string InstanceMutexName = "MailClient.SingleInstance.{5D1C8E1B-6C1F-4E1E-9A3E-2B7F0F3E9D41}";
@@ -149,6 +150,7 @@ public partial class App : Application
         _main?.Dispose();
         _tray?.Dispose();
         _instanceMutex?.Dispose();
+        _activateEvent?.Dispose();
         base.OnExit(e);
     }
 }

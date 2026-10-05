@@ -55,9 +55,6 @@ internal static class EwsParser
         return new EmailAddress(mailbox.Val("Name") ?? "", mailbox.Val("EmailAddress") ?? "", mailbox.Val("RoutingType") ?? "SMTP");
     }
 
-    public static List<EmailAddress> ParseMailboxList(XElement? list) =>
-        list?.Elements(T + "Mailbox").Select(ParseMailbox).OfType<EmailAddress>().ToList() ?? new();
-
     public static Importance ParseImportance(string? s) => s switch
     {
         "Low" => Importance.Low,
@@ -107,31 +104,6 @@ internal static class EwsParser
     {
         var m = new MessageSummary();
         FillSummary(m, e);
-        return m;
-    }
-
-    public static MailMessage ParseMessage(XElement e)
-    {
-        var m = new MailMessage();
-        FillSummary(m, e);
-        m.To = ParseMailboxList(e.Element(T + "ToRecipients"));
-        m.Cc = ParseMailboxList(e.Element(T + "CcRecipients"));
-        m.Bcc = ParseMailboxList(e.Element(T + "BccRecipients"));
-        m.ReplyTo = ParseMailboxList(e.Element(T + "ReplyTo"));
-        m.Sender = ParseMailbox(e.Element(T + "Sender"));
-        var body = e.Element(T + "Body");
-        m.Body = body?.Value ?? "";
-        m.BodyIsHtml = string.Equals((string?)body?.Attribute("BodyType"), "HTML", StringComparison.OrdinalIgnoreCase);
-        m.InternetMessageId = e.Val("InternetMessageId") ?? "";
-        m.IsReadReceiptRequested = ParseBool(e.Val("IsReadReceiptRequested"));
-        m.Attachments = ParseAttachments(e.Element(T + "Attachments"));
-
-        // Meeting requests carry calendar information on the message itself.
-        if (e.Name.LocalName is "MeetingRequest" or "MeetingCancellation" || e.Element(T + "Start") != null)
-        {
-            m.Meeting = ParseMeeting(e);
-            if (m.Meeting.Organizer == null) m.Meeting.Organizer = m.From;
-        }
         return m;
     }
 

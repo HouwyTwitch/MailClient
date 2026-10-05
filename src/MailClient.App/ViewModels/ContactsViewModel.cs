@@ -12,19 +12,7 @@ public sealed class ContactItemViewModel
     public Contact Contact { get; }
     public string DisplayName => string.IsNullOrWhiteSpace(Contact.DisplayName) ? Contact.PrimaryEmail : Contact.DisplayName;
     public string Subtitle => string.Join(" · ", new[] { Contact.JobTitle, Contact.CompanyName }.Where(s => !string.IsNullOrWhiteSpace(s)));
-    public string Initials
-    {
-        get
-        {
-            var parts = DisplayName.Split(new[] { ' ', '.', '@' }, StringSplitOptions.RemoveEmptyEntries);
-            return parts.Length switch
-            {
-                0 => "?",
-                1 => parts[0][..1].ToUpperInvariant(),
-                _ => (parts[0][..1] + parts[1][..1]).ToUpperInvariant(),
-            };
-        }
-    }
+    public string Initials => RuText.Initials(DisplayName);
     public string Emails => string.Join("\n", Contact.EmailAddresses);
     public string Phones => string.Join("\n", new[]
     {

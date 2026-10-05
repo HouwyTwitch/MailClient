@@ -83,20 +83,7 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
 
     public string Subject => string.IsNullOrWhiteSpace(Message.Subject) ? "(без темы)" : Message.Subject;
     public string FromText => Message.From?.DisplayText ?? "(без отправителя)";
-    public string FromInitials
-    {
-        get
-        {
-            var n = Message.From?.ShortName ?? "?";
-            var parts = n.Split(new[] { ' ', '.', '@' }, StringSplitOptions.RemoveEmptyEntries);
-            return parts.Length switch
-            {
-                0 => "?",
-                1 => parts[0][..1].ToUpperInvariant(),
-                _ => (parts[0][..1] + parts[1][..1]).ToUpperInvariant(),
-            };
-        }
-    }
+    public string FromInitials => RuText.Initials(Message.From?.ShortName ?? "");
     public string ToText => string.Join("; ", Message.To.Select(a => a.DisplayText));
     public string CcText => string.Join("; ", Message.Cc.Select(a => a.DisplayText));
     public bool HasCc => Message.Cc.Count > 0;

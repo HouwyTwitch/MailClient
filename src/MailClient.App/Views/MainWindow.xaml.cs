@@ -55,6 +55,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        BodyView.Dispose();
         base.OnClosed(e);
         Application.Current.Shutdown();
     }

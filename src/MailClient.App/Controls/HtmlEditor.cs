@@ -18,7 +18,7 @@ public sealed record EditorFormatState(
 /// Rich-text (HTML) message editor: a contenteditable page inside WebView2, driven through a small script API
 /// (editor.html). Falls back to a plain-text box when the WebView2 runtime is not installed.
 /// </summary>
-public sealed class HtmlEditor : UserControl
+public sealed class HtmlEditor : UserControl, IDisposable
 {
     private readonly WebView2 _web = new();
     private readonly TextBox _plain = new()
@@ -175,6 +175,13 @@ public sealed class HtmlEditor : UserControl
         }
         _web.Focus();
         await _web.ExecuteScriptAsync("focusEditor()");
+    }
+
+    /// <summary>Releases the browser instance (called when the owning window closes).</summary>
+    public void Dispose()
+    {
+        _ready.TrySetResult(false);
+        _web.Dispose();
     }
 
     /// <summary>Puts the caret at the start of the text.</summary>

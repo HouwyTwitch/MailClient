@@ -244,7 +244,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             FolderNodeViewModel? toSelect = null;
             if (selectedId != null) toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Id == selectedId);
-            if (toSelect == null && (firstBuild || selectedId == null || selectedId.StartsWith("root:")))
+            if (toSelect == null && (firstBuild || selectedId == null || selectedId.StartsWith("root:", StringComparison.Ordinal)))
                 toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Folder.WellKnown == WellKnownFolder.Inbox);
             if (toSelect != null)
             {
@@ -339,7 +339,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Updates the list in place where possible to keep scroll position and selection.</summary>
-    private void ApplyMessages(IReadOnlyList<MessageSummary> list, bool showRecipients)
+    private void ApplyMessages(List<MessageSummary> list, bool showRecipients)
     {
         var selectedId = SelectedMessage?.Id;
         var existing = Messages.ToDictionary(m => m.Id);
@@ -646,7 +646,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         await MoveItemsToAsync(items, folder, target.Id);
     }
 
-    private async Task MoveItemsToAsync(IReadOnlyCollection<MessageItemViewModel> items, FolderNodeViewModel from, string targetId)
+    private async Task MoveItemsToAsync(List<MessageItemViewModel> items, FolderNodeViewModel from, string targetId)
     {
         if (items.Count == 0) return;
         RemoveFromList(items);
@@ -973,10 +973,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "Commands are generated for instance methods")]
     private void OpenLogs() => WindowsIntegration.ShellOpen(AppPaths.Logs);
 
     /// <summary>ZIP with logs, settings without secrets and system data for the IT department.</summary>
     [RelayCommand]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "Commands are generated for instance methods")]
     private void SaveSupportBundle()
     {
         var dlg = new SaveFileDialog
@@ -998,6 +1000,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "Commands are generated for instance methods")]
     private void ShowAbout() => WindowFactory.About();
 
     public void Dispose()

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -49,11 +50,11 @@ public partial class AccountWindow : Window
         SignatureBox.Text = account.Signature;
         Select(AuthCombo, account.AuthScheme.ToString());
         Select(VersionCombo, account.ServerVersion.ToString());
-        Select(IntervalCombo, account.SyncIntervalSeconds.ToString());
+        Select(IntervalCombo, account.SyncIntervalSeconds.ToString(CultureInfo.InvariantCulture));
         ImapHostBox.Text = account.ImapHost;
-        ImapPortBox.Text = account.ImapPort.ToString();
+        ImapPortBox.Text = account.ImapPort.ToString(CultureInfo.InvariantCulture);
         SmtpHostBox.Text = account.SmtpHost;
-        SmtpPortBox.Text = account.SmtpPort.ToString();
+        SmtpPortBox.Text = account.SmtpPort.ToString(CultureInfo.InvariantCulture);
         Select(ImapSecurityCombo, account.ImapSecurity.ToString());
         Select(SmtpSecurityCombo, account.SmtpSecurity.ToString());
         SaveSentCheck.IsChecked = account.SaveSentCopy;
@@ -116,10 +117,10 @@ public partial class AccountWindow : Window
     private void ApplyPreset(MailPresets.Preset p)
     {
         ImapHostBox.Text = p.ImapHost;
-        ImapPortBox.Text = p.ImapPort.ToString();
+        ImapPortBox.Text = p.ImapPort.ToString(CultureInfo.InvariantCulture);
         Select(ImapSecurityCombo, p.ImapSecurity.ToString());
         SmtpHostBox.Text = p.SmtpHost;
-        SmtpPortBox.Text = p.SmtpPort.ToString();
+        SmtpPortBox.Text = p.SmtpPort.ToString(CultureInfo.InvariantCulture);
         Select(SmtpSecurityCombo, p.SmtpSecurity.ToString());
     }
 
@@ -225,7 +226,7 @@ public partial class AccountWindow : Window
         a.ServerVersion = Enum.Parse<ExchangeServerVersion>(TagOf(VersionCombo));
         a.SharedMailbox = SharedBox.Text.Trim();
         a.Signature = SignatureBox.Text;
-        a.SyncIntervalSeconds = int.Parse(TagOf(IntervalCombo));
+        a.SyncIntervalSeconds = int.Parse(TagOf(IntervalCombo), CultureInfo.InvariantCulture);
         a.TrustedRootCertificatesPem = _certPem;
         a.Protocol = IsImap ? MailProtocol.Imap : MailProtocol.Exchange;
         a.ImapHost = ImapHostBox.Text.Trim();
@@ -245,8 +246,6 @@ public partial class AccountWindow : Window
         private readonly string _password;
         public TemporaryCredentials(string password) => _password = password;
         public string? GetPassword(Guid accountId) => _password;
-        public Task<string> GetAccessTokenAsync(AccountSettings account, bool forceRefresh, CancellationToken ct) =>
-            throw new NotSupportedException();
     }
 
     private string EffectivePassword() =>
@@ -328,7 +327,7 @@ public partial class AccountWindow : Window
         _ => "автоматически",
     };
 
-    private async Task<(MailboxInfo? info, Exception? error)> TryConnectAsync(AccountSettings attempt, string password)
+    private static async Task<(MailboxInfo? info, Exception? error)> TryConnectAsync(AccountSettings attempt, string password)
     {
         try
         {

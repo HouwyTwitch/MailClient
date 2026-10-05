@@ -23,7 +23,6 @@ public class NtlmSchemeTests
     private sealed class Creds : ICredentialProvider
     {
         public string? GetPassword(Guid accountId) => "Пароль-123";
-        public Task<string> GetAccessTokenAsync(AccountSettings account, bool forceRefresh, CancellationToken ct) => throw new NotSupportedException();
     }
 
     /// <summary>Serves 401 with both challenges and records the Authorization headers it receives.</summary>

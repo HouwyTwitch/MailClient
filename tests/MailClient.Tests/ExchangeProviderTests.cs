@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Xml.Linq;
 using MailClient.Core.Models;
@@ -163,9 +164,9 @@ public class ExchangeProviderTests
         for (int i = 0; i < 14; i++)
         {
             items[$"N{i}"] = $"<t:Message><t:ItemId Id=\"N{i}\"/><t:Subject>Письмо {i}</t:Subject><t:IsRead>false</t:IsRead></t:Message>";
-            creates.Append($"<t:Create>{IdOnly($"N{i}")}</t:Create>");
+            creates.Append(CultureInfo.InvariantCulture, $"<t:Create>{IdOnly($"N{i}")}</t:Create>");
         }
-        creates.Append($"<t:Update>{IdOnly("GONE_LATER")}</t:Update>"); // deleted between the two calls
+        creates.Append(CultureInfo.InvariantCulture, $"<t:Update>{IdOnly("GONE_LATER")}</t:Update>"); // deleted between the two calls
         var fake = new FakeEws()
             .On("SyncFolderItems", Response("SyncFolderItems", Success("SyncFolderItems",
                 $"""
@@ -592,7 +593,7 @@ public class ExchangeProviderTests
         Assert.Empty(fake.ValidationErrors);
         var meeting = Assert.IsType<MeetingInfo>(m.Meeting);
         Assert.Equal("Переговорная 3", meeting.Location);
-        Assert.Equal(DateTimeOffset.Parse("2026-10-06T07:00:00Z"), meeting.Start);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-06T07:00:00Z", CultureInfo.InvariantCulture), meeting.Start);
         Assert.Equal("petrov@contoso.ru", meeting.Organizer!.Address);
         var details = fake.Envelopes.Last();
         Assert.Equal("AllProperties", details.Descendants(T + "BaseShape").Single().Value);

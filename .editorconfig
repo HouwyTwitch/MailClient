@@ -1,0 +1,26 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+
+[*.{xaml,csproj,props,xml,json,yml}]
+indent_size = 2
+
+[*.{xaml,csproj,props}]
+indent_size = 4
+
+[tests/**.cs]
+# Test names are sentences (Sync_pages_until_last_item…) and literal arrays keep expectations readable.
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
+[*.cs]
+# Dead code fails the build: unused usings, private members, unread fields, unused parameters.
+dotnet_diagnostic.IDE0005.severity = warning
+dotnet_diagnostic.IDE0051.severity = warning
+dotnet_diagnostic.IDE0052.severity = warning
+dotnet_diagnostic.IDE0060.severity = warning

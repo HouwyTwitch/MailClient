@@ -272,8 +272,10 @@ public static partial class MimeMail
     /// Composes an outgoing message as MIME. Replies quote the original and carry In-Reply-To/References;
     /// forwards include the original and its attachments — the same result on Exchange and IMAP.
     /// </summary>
+    /// <param name="message">What the user wrote: recipients, subject, body, attachments, reply/forward action.</param>
     /// <param name="from">Author (account or shared mailbox).</param>
     /// <param name="loadOriginal">Loads the referenced original message (reply/forward).</param>
+    /// <param name="ct">Cancels loading the original.</param>
     public static async Task<MimeMessage> BuildAsync(OutgoingMessage message, MailboxAddress from,
         Func<string, CancellationToken, Task<MimeMessage>> loadOriginal, CancellationToken ct)
     {

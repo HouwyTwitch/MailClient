@@ -17,6 +17,7 @@
     <!-- Published output is a single MailClient.exe: symbols embedded (line numbers in logs), no XML docs. -->
     <DebugType>embedded</DebugType>
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
     <!-- WinForms is only used for the tray icon. Per-monitor DPI awareness must stay in app.manifest: WPF reads
          it from there (the WinForms ApplicationHighDpiMode setting does not apply to WPF windows). -->
     <NoWarn>$(NoWarn);WFAC010;WFO0003</NoWarn>

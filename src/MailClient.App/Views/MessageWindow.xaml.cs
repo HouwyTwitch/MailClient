@@ -17,6 +17,12 @@ public partial class MessageWindow : Window
         DataContext = preview;
     }
 
+    protected override void OnClosed(EventArgs e)
+    {
+        BodyView.Dispose();
+        base.OnClosed(e);
+    }
+
     private void Respond(ComposeAction action)
     {
         WindowFactory.OpenCompose(ComposeViewModel.ForResponse(_main.Sessions, _preview.Session, _preview.Message, action), _main.Settings);

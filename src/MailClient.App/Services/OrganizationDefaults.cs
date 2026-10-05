@@ -17,6 +17,8 @@ namespace MailClient.App.Services;
 /// </remarks>
 public sealed class OrganizationDefaults
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     public string EwsUrl { get; set; } = "";
     public string Domain { get; set; } = "";
     public string EmailDomain { get; set; } = "";
@@ -40,8 +42,7 @@ public sealed class OrganizationDefaults
         {
             var file = Path.Combine(AppContext.BaseDirectory, "organization.json");
             if (File.Exists(file))
-                d = JsonSerializer.Deserialize<OrganizationDefaults>(File.ReadAllText(file),
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? d;
+                d = JsonSerializer.Deserialize<OrganizationDefaults>(File.ReadAllText(file), JsonOptions) ?? d;
         }
         catch (Exception ex)
         {

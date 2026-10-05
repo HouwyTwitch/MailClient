@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailClient.Core.Models;
 using MailClient.Core.Rendering;
 using MailClient.Core.Storage;
@@ -83,7 +84,7 @@ public class HtmlTests
     }
 }
 
-public class LocalCacheTests : IDisposable
+public sealed class LocalCacheTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"mc-test-{Guid.NewGuid():N}.db");
 
@@ -127,8 +128,8 @@ public class LocalCacheTests : IDisposable
         cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Входящие", WellKnown = WellKnownFolder.Inbox } });
         cache.UpsertMessages(new[]
         {
-            new MessageSummary { Id = "1", FolderId = "F", Subject = "Старое", DateReceived = DateTimeOffset.Parse("2026-01-01T00:00:00Z"), From = new EmailAddress("Иван", "ivan@x.ru") },
-            new MessageSummary { Id = "2", FolderId = "F", Subject = "Новое 100%", DateReceived = DateTimeOffset.Parse("2026-09-01T00:00:00Z"), IsRead = true, Categories = { "Важно" } },
+            new MessageSummary { Id = "1", FolderId = "F", Subject = "Старое", DateReceived = DateTimeOffset.Parse("2026-01-01T00:00:00Z", CultureInfo.InvariantCulture), From = new EmailAddress("Иван", "ivan@x.ru") },
+            new MessageSummary { Id = "2", FolderId = "F", Subject = "Новое 100%", DateReceived = DateTimeOffset.Parse("2026-09-01T00:00:00Z", CultureInfo.InvariantCulture), IsRead = true, Categories = { "Важно" } },
         });
 
         var list = cache.GetMessages("F", 0, 10);
@@ -172,7 +173,7 @@ public class LocalCacheTests : IDisposable
     }
 }
 
-public class SyncEngineTests : IDisposable
+public sealed class SyncEngineTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"mc-sync-{Guid.NewGuid():N}.db");
 
@@ -273,7 +274,7 @@ public class SyncEngineTests : IDisposable
     }
 }
 
-public class SuggestTests : IDisposable
+public sealed class SuggestTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"mc-sugg-{Guid.NewGuid():N}.db");
 
@@ -290,9 +291,9 @@ public class SuggestTests : IDisposable
         cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Inbox" } });
         cache.UpsertMessages(new[]
         {
-            new MessageSummary { Id = "1", FolderId = "F", From = new EmailAddress("Сидорова Анна", "anna@x.ru"), DateReceived = DateTimeOffset.Parse("2026-01-01T00:00:00Z") },
-            new MessageSummary { Id = "2", FolderId = "F", From = new EmailAddress("Сидорова Анна", "ANNA@x.ru"), DateReceived = DateTimeOffset.Parse("2026-02-01T00:00:00Z") },
-            new MessageSummary { Id = "3", FolderId = "F", From = new EmailAddress("Сидоров Олег", "oleg@x.ru"), DateReceived = DateTimeOffset.Parse("2026-03-01T00:00:00Z") },
+            new MessageSummary { Id = "1", FolderId = "F", From = new EmailAddress("Сидорова Анна", "anna@x.ru"), DateReceived = DateTimeOffset.Parse("2026-01-01T00:00:00Z", CultureInfo.InvariantCulture) },
+            new MessageSummary { Id = "2", FolderId = "F", From = new EmailAddress("Сидорова Анна", "ANNA@x.ru"), DateReceived = DateTimeOffset.Parse("2026-02-01T00:00:00Z", CultureInfo.InvariantCulture) },
+            new MessageSummary { Id = "3", FolderId = "F", From = new EmailAddress("Сидоров Олег", "oleg@x.ru"), DateReceived = DateTimeOffset.Parse("2026-03-01T00:00:00Z", CultureInfo.InvariantCulture) },
         });
         var s = cache.SuggestAddresses("сидоров", 10);
         Assert.Equal(2, s.Count);

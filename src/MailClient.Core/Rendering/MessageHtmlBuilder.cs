@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -42,10 +43,10 @@ public static partial class MessageHtmlBuilder
 
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">");
-        sb.Append($"<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">");
+        sb.Append(CultureInfo.InvariantCulture, $"<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">");
         sb.Append("<base target=\"_blank\">");
         sb.Append("<style>");
-        sb.Append($"html,body{{margin:0;padding:0;background:{bg};color:{fg};}}");
+        sb.Append(CultureInfo.InvariantCulture, $"html,body{{margin:0;padding:0;background:{bg};color:{fg};}}");
         sb.Append("body{font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.45;padding:16px 20px;word-wrap:break-word;}");
         sb.Append("img{max-width:100%;height:auto;}pre.plain{white-space:pre-wrap;font-family:Consolas,'Cascadia Mono',monospace;font-size:13px;margin:0}");
         sb.Append("blockquote{border-left:3px solid #8a8a8a;margin:0 0 0 4px;padding-left:10px;color:#555}a{color:#0067c0}");

@@ -1,9 +1,9 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using MailClient.Core;
 using MailClient.Core.Mime;
 using MailClient.Core.Models;
-using MailClient.Core.Rendering;
 using MailClient.Core.Security;
 using MailClient.Core.Services;
 using MailKit;
@@ -12,7 +12,6 @@ using MailKit.Net.Smtp;
 using MailKit.Search;
 using MailKit.Security;
 using MimeKit;
-using MimeKit.Text;
 using MailFolder = MailClient.Core.Models.MailFolder;
 using MessageSummary = MailClient.Core.Models.MessageSummary;
 
@@ -149,7 +148,8 @@ public sealed class ImapProvider : IMailProvider
         }
     }
 
-    private Task RunAsync(Func<Task> op, CancellationToken ct) => RunAsync(async () => { await op().ConfigureAwait(false); return true; }, ct);
+    private async Task RunAsync(Func<Task> op, CancellationToken ct) =>
+        await RunAsync(async () => { await op().ConfigureAwait(false); return true; }, ct).ConfigureAwait(false);
 
     public async Task<MailboxInfo> ConnectAsync(CancellationToken ct = default)
     {
@@ -192,7 +192,7 @@ public sealed class ImapProvider : IMailProvider
     {
         var p = id.Split(IdSeparator);
         if (p.Length != 3) throw new MailServiceException("Некорректный идентификатор письма.");
-        return (p[0], uint.Parse(p[1]), new UniqueId(uint.Parse(p[1]), uint.Parse(p[2])));
+        return (p[0], uint.Parse(p[1], CultureInfo.InvariantCulture), new UniqueId(uint.Parse(p[1], CultureInfo.InvariantCulture), uint.Parse(p[2], CultureInfo.InvariantCulture)));
     }
 
     private async Task<IMailFolder> FolderAsync(string folderId, CancellationToken ct)
@@ -338,7 +338,7 @@ public sealed class ImapProvider : IMailProvider
         var f = await FolderAsync(folderId, ct).ConfigureAwait(false);
         if (f.IsOpen) await f.CloseAsync(false, ct).ConfigureAwait(false);
         var trash = permanent ? null : await SpecialFolderAsync(WellKnownFolder.DeletedItems, ct).ConfigureAwait(false);
-        if (trash != null && trash.FullName != f.FullName && !f.FullName.StartsWith(trash.FullName + trash.DirectorySeparator))
+        if (trash != null && trash.FullName != f.FullName && !f.FullName.StartsWith(trash.FullName + trash.DirectorySeparator, StringComparison.Ordinal))
             await f.RenameAsync(trash, f.Name, ct).ConfigureAwait(false);
         else
             await f.DeleteAsync(ct).ConfigureAwait(false);
@@ -450,7 +450,7 @@ public sealed class ImapProvider : IMailProvider
             if (string.IsNullOrEmpty(s)) return null;
             var p = s.Split('|');
             if (p.Length != 8 || p[0] != "v1") return null;
-            return new SyncState(uint.Parse(p[1]), ulong.Parse(p[2]), uint.Parse(p[3]), int.Parse(p[4]),
+            return new SyncState(uint.Parse(p[1], CultureInfo.InvariantCulture), ulong.Parse(p[2], CultureInfo.InvariantCulture), uint.Parse(p[3], CultureInfo.InvariantCulture), int.Parse(p[4], CultureInfo.InvariantCulture),
                 ParseRanges(p[5]), ParseRanges(p[6]), ParseRanges(p[7]));
         }
 
@@ -462,7 +462,7 @@ public sealed class ImapProvider : IMailProvider
             {
                 int j = i;
                 while (j + 1 < sorted.Count && sorted[j + 1] == sorted[j] + 1) j++;
-                parts.Add(i == j ? sorted[i].ToString() : $"{sorted[i]}:{sorted[j]}");
+                parts.Add(i == j ? sorted[i].ToString(CultureInfo.InvariantCulture) : string.Create(CultureInfo.InvariantCulture, $"{sorted[i]}:{sorted[j]}"));
                 i = j + 1;
             }
             return string.Join(',', parts);
@@ -474,7 +474,7 @@ public sealed class ImapProvider : IMailProvider
             foreach (var part in s.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
                 var r = part.Split(':');
-                uint a = uint.Parse(r[0]), b = r.Length > 1 ? uint.Parse(r[1]) : a;
+                uint a = uint.Parse(r[0], CultureInfo.InvariantCulture), b = r.Length > 1 ? uint.Parse(r[1], CultureInfo.InvariantCulture) : a;
                 for (uint v = a; v <= b && v >= a; v++) set.Add(v);
             }
             return set;
@@ -608,7 +608,7 @@ public sealed class ImapProvider : IMailProvider
 
     // ===================================================================== flags / move / delete
 
-    private IEnumerable<(string folder, List<UniqueId> uids)> ByFolder(IEnumerable<string> itemIds) =>
+    private static IEnumerable<(string folder, List<UniqueId> uids)> ByFolder(IEnumerable<string> itemIds) =>
         itemIds.Select(ParseId).GroupBy(x => x.folder).Select(g => (g.Key, g.Select(x => x.uid).ToList()));
 
     public Task SetReadStateAsync(IEnumerable<string> itemIds, bool isRead, CancellationToken ct = default) => RunAsync(async () =>

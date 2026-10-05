@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Security;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using MailClient.Core.Models;
 using MailClient.Core.Security;
@@ -11,7 +10,7 @@ namespace MailClient.Exchange.Http;
 
 /// <summary>
 /// Builds the HTTP pipeline for talking to Exchange: NTLM / Kerberos (Negotiate) / Basic via
-/// <see cref="NetworkCredential"/>, Windows single sign-on via default credentials, or OAuth 2.0 bearer tokens.
+/// <see cref="NetworkCredential"/>, or Windows single sign-on via default credentials.
 /// </summary>
 public static class ExchangeHttp
 {
@@ -39,8 +38,6 @@ public static class ExchangeHttp
             case AuthMethod.IntegratedWindows:
                 sockets.Credentials = RestrictScheme(CredentialCache.DefaultNetworkCredentials, account.AuthScheme);
                 return sockets;
-            case AuthMethod.OAuth2:
-                return new BearerTokenHandler(account, credentials) { InnerHandler = sockets };
             default:
                 throw new ArgumentOutOfRangeException(nameof(account), account.AuthMethod, "Неизвестный способ входа");
         }
@@ -81,10 +78,7 @@ public static class ExchangeHttp
             Timeout = TimeSpan.FromMinutes(10),
         };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MailClient", "0.1"));
-        // No routing hints for on-premises Exchange (some proxies reject unknown anchors); X-AnchorMailbox is
-        // only needed for OAuth against Exchange Online.
-        if (account.AuthMethod == AuthMethod.OAuth2)
-            client.DefaultRequestHeaders.Add("X-AnchorMailbox", string.IsNullOrWhiteSpace(account.SharedMailbox) ? account.EmailAddress : account.SharedMailbox);
+        // No routing hints (X-AnchorMailbox): on-premises Exchange does not need them and some proxies reject them.
         return client;
     }
 
@@ -128,46 +122,6 @@ public static class ExchangeHttp
         CertificateTrust.Validate(cert, errors, customRoots, pinnedThumbprint);
 
     public static List<X509Certificate2> ParseCertificates(string? pem) => CertificateTrust.ParseCertificates(pem);
-
-    private static string NormalizeThumbprint(string s) =>
-        new string(s.Where(Uri.IsHexDigit).ToArray()).ToUpperInvariant();
-}
-
-/// <summary>Adds an OAuth2 bearer token and retries once with a refreshed token on 401.</summary>
-internal sealed class BearerTokenHandler : DelegatingHandler
-{
-    private readonly AccountSettings _account;
-    private readonly ICredentialProvider _credentials;
-
-    public BearerTokenHandler(AccountSettings account, ICredentialProvider credentials)
-    {
-        _account = account;
-        _credentials = credentials;
-    }
-
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-    {
-        // Buffer the content so the request can be replayed.
-        byte[]? body = request.Content == null ? null : await request.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-        var contentHeaders = request.Content?.Headers.ToList();
-
-        var token = await _credentials.GetAccessTokenAsync(_account, false, ct).ConfigureAwait(false);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var response = await base.SendAsync(request, ct).ConfigureAwait(false);
-        if (response.StatusCode != HttpStatusCode.Unauthorized) return response;
-
-        response.Dispose();
-        var retry = new HttpRequestMessage(request.Method, request.RequestUri);
-        foreach (var h in request.Headers) retry.Headers.TryAddWithoutValidation(h.Key, h.Value);
-        if (body != null)
-        {
-            retry.Content = new ByteArrayContent(body);
-            foreach (var h in contentHeaders!) retry.Content.Headers.TryAddWithoutValidation(h.Key, h.Value);
-        }
-        token = await _credentials.GetAccessTokenAsync(_account, true, ct).ConfigureAwait(false);
-        retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        return await base.SendAsync(retry, ct).ConfigureAwait(false);
-    }
 }
 
 /// <summary>Credentials that are only offered for one authentication scheme.</summary>

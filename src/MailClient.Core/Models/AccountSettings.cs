@@ -6,8 +6,6 @@ public enum AuthMethod
     Password,
     /// <summary>Single sign-on with the logged-in Windows account (Kerberos/NTLM).</summary>
     IntegratedWindows,
-    /// <summary>OAuth 2.0 (Modern Authentication) via Microsoft Entra ID.</summary>
-    OAuth2,
 }
 
 /// <summary>HTTP authentication scheme for Exchange (EWS).</summary>
@@ -24,6 +22,7 @@ public enum HttpAuthScheme
 }
 
 /// <summary>EWS schema version requested from the server. Determines which features are available.</summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1707", Justification = "Names are the EWS RequestServerVersion values and are stored in settings files")]
 public enum ExchangeServerVersion
 {
     Exchange2010_SP2,
@@ -70,13 +69,6 @@ public sealed class AccountSettings
 
     public ExchangeServerVersion ServerVersion { get; set; } = ExchangeServerVersion.Exchange2013_SP1;
 
-    /// <summary>OAuth2 application (client) id registered in Entra ID.</summary>
-    public string OAuthClientId { get; set; } = "";
-    /// <summary>OAuth2 tenant (directory id or domain). "organizations" when empty.</summary>
-    public string OAuthTenant { get; set; } = "";
-    /// <summary>OAuth2 scope. Defaults to https://{ews-host}/EWS.AccessAsUser.All when empty.</summary>
-    public string OAuthScope { get; set; } = "";
-
     /// <summary>
     /// Optional SHA-256 thumbprint of a self-signed/internal server certificate to trust.
     /// Only that exact certificate is accepted in addition to normally trusted ones.
@@ -109,17 +101,6 @@ public sealed class AccountSettings
     public string Signature { get; set; } = "";
 
     public string EffectiveDisplayName => string.IsNullOrWhiteSpace(DisplayName) ? EmailAddress : DisplayName;
-
-    public string EffectiveOAuthScope
-    {
-        get
-        {
-            if (!string.IsNullOrWhiteSpace(OAuthScope)) return OAuthScope;
-            if (Uri.TryCreate(EwsUrl, UriKind.Absolute, out var u))
-                return $"https://{u.Host}/EWS.AccessAsUser.All";
-            return "https://outlook.office365.com/EWS.AccessAsUser.All";
-        }
-    }
 
     public AccountSettings Clone() => (AccountSettings)MemberwiseClone();
 }

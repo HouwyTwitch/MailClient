@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -40,12 +41,12 @@ public static class SupportBundle
         }
 
         var info = new StringBuilder()
-            .AppendLine($"Программа: {typeof(SupportBundle).Assembly.GetName().Version}")
-            .AppendLine($"Windows: {Environment.OSVersion.VersionString}, {(Environment.Is64BitOperatingSystem ? "x64" : "x86")}")
-            .AppendLine($".NET: {Environment.Version}")
-            .AppendLine($"Пользователь: {Environment.UserDomainName}\\{Environment.UserName}, компьютер: {Environment.MachineName}")
-            .AppendLine($"WebView2: {(Controls.WebViewHost.IsRuntimeInstalled() ? "установлен" : "НЕ установлен")}")
-            .AppendLine($"Создано: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            .AppendLine(CultureInfo.InvariantCulture, $"Программа: {typeof(SupportBundle).Assembly.GetName().Version}")
+            .AppendLine(CultureInfo.InvariantCulture, $"Windows: {Environment.OSVersion.VersionString}, {(Environment.Is64BitOperatingSystem ? "x64" : "x86")}")
+            .AppendLine(CultureInfo.InvariantCulture, $".NET: {Environment.Version}")
+            .AppendLine(CultureInfo.InvariantCulture, $"Пользователь: {Environment.UserDomainName}\\{Environment.UserName}, компьютер: {Environment.MachineName}")
+            .AppendLine(CultureInfo.InvariantCulture, $"WebView2: {(Controls.WebViewHost.IsRuntimeInstalled() ? "установлен" : "НЕ установлен")}")
+            .AppendLine(CultureInfo.InvariantCulture, $"Создано: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         Write(zip, "system.txt", info.ToString());
     }
 

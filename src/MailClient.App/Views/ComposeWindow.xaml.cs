@@ -13,12 +13,14 @@ using Microsoft.Win32;
 
 namespace MailClient.App.Views;
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001", Justification = "Released in OnClosed, where a window's lifetime ends")]
 public partial class ComposeWindow : Window
 {
     private readonly ComposeViewModel _vm;
     private readonly DispatcherTimer _suggestTimer;
     private TextBox? _suggestTarget;
     private CancellationTokenSource? _suggestCts;
+    private static readonly char[] RecipientSeparators = [';', ','];
     private bool _closeConfirmed;
     private bool _closePromptOpen;
 
@@ -116,6 +118,15 @@ public partial class ComposeWindow : Window
         {
             _closePromptOpen = false;
         }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _suggestTimer.Stop();
+        _suggestCts?.Cancel();
+        _suggestCts?.Dispose();
+        Editor.Dispose();
+        base.OnClosed(e);
     }
 
     // ------------------------------------------------------------------ attachments
@@ -304,7 +315,7 @@ public partial class ComposeWindow : Window
     {
         var text = box.Text;
         var caret = Math.Min(box.CaretIndex, text.Length);
-        int start = text.LastIndexOfAny(new[] { ';', ',' }, Math.Max(0, caret - 1)) + 1;
+        int start = text.LastIndexOfAny(RecipientSeparators, Math.Max(0, caret - 1)) + 1;
         if (caret == 0) start = 0;
         return (start, text[start..caret].Trim());
     }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Xml;
@@ -45,6 +46,8 @@ public sealed class EwsResponseException : MailServiceException
 /// </summary>
 public sealed class EwsClient : IDisposable
 {
+    private static readonly string[] VersionParts = ["MajorVersion", "MinorVersion", "MajorBuildNumber", "MinorBuildNumber"];
+
     /// <summary>Operations that only read data and can be safely sent again after a network failure.</summary>
     private static readonly HashSet<string> IdempotentOperations = new()
     {
@@ -76,7 +79,9 @@ public sealed class EwsClient : IDisposable
     internal Func<int, TimeSpan> NetworkRetryDelay { get; set; } = attempt => TimeSpan.FromSeconds(attempt == 0 ? 1 : 4);
 
     /// <summary>Sends an operation and returns the operation response element (first child of soap:Body).</summary>
-    /// <param name="timeZoneId">Windows time zone id for a TimeZoneContext header (calendar operations).</param>
+    /// <param name="operation">The operation element (m:GetItem, m:CreateItem…).</param>
+    /// <param name="ct">Cancels the request, including retries and throttling pauses.</param>
+    /// <param name="timeZoneId">Windows time zone id for a TimeZoneContext header (meeting times).</param>
     /// <param name="requestVersion">Overrides the RequestServerVersion for this call.</param>
     public async Task<XElement> SendAsync(XElement operation, CancellationToken ct, string? timeZoneId = null, string? requestVersion = null)
     {
@@ -213,15 +218,13 @@ public sealed class EwsClient : IDisposable
                 if (response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout)
                     return (null, null, new HttpRequestException($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}"));
                 MailLog.Warn?.Invoke($"EWS {name}: ответ не XML, HTTP {(int)response.StatusCode}, {bytes.Length} байт");
-                throw new MailServiceException($"Непредвиденный ответ сервера (HTTP {(int)response.StatusCode} {response.ReasonPhrase}).", ((int)response.StatusCode).ToString());
+                throw new MailServiceException($"Непредвиденный ответ сервера (HTTP {(int)response.StatusCode} {response.ReasonPhrase}).", ((int)response.StatusCode).ToString(CultureInfo.InvariantCulture));
             }
 
             var serverVersion = doc.Root?.Element(Soap + "Header")?.Element(T + "ServerVersionInfo");
             if (serverVersion != null)
             {
-                LastServerVersion = string.Join(".",
-                    new[] { "MajorVersion", "MinorVersion", "MajorBuildNumber", "MinorBuildNumber" }
-                        .Select(a => serverVersion.Attribute(a)?.Value ?? "0"));
+                LastServerVersion = string.Join(".", VersionParts.Select(a => serverVersion.Attribute(a)?.Value ?? "0"));
             }
 
             var body = doc.Root?.Element(Soap + "Body")

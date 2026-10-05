@@ -53,7 +53,6 @@ public class ExchangeSignInTests
     private sealed class NoCreds : ICredentialProvider
     {
         public string? GetPassword(Guid accountId) => null;
-        public Task<string> GetAccessTokenAsync(AccountSettings account, bool forceRefresh, CancellationToken ct) => throw new NotSupportedException();
     }
 
     [Fact]

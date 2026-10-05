@@ -45,7 +45,6 @@ internal static class Ews
             ? default
             : DateTimeOffset.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
-    public static DateTimeOffset? ParseDateOrNull(string? s) => string.IsNullOrEmpty(s) ? null : ParseDate(s);
 
     public static bool ParseBool(string? s) => string.Equals(s, "true", StringComparison.OrdinalIgnoreCase);
 
