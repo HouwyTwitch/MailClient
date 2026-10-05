@@ -102,7 +102,7 @@ public sealed class SyncEngine
             {
                 _cache.UpsertMessages(result.CreatedOrUpdated);
                 foreach (var m in result.CreatedOrUpdated) _cache.InvalidateCachedMessage(m.Id);
-                if (!initial) arrived.AddRange(result.CreatedOrUpdated.Where(m => !m.IsRead));
+                if (!initial) arrived.AddRange(result.CreatedOrUpdated.Where(m => !m.IsRead && result.Created.Contains(m.Id)));
             }
             if (result.Deleted.Count > 0) _cache.DeleteMessages(result.Deleted);
             foreach (var group in result.ReadFlagChanges.GroupBy(kv => kv.Value))

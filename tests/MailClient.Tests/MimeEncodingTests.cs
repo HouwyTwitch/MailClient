@@ -8,6 +8,9 @@ namespace MailClient.Tests;
 
 public class MimeEncodingTests
 {
+    // For the test's own Encoding.GetEncoding(1251/20866) calls; MimeMail registers the provider itself.
+    static MimeEncodingTests() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
     private static Task<MimeMessage> Build(OutgoingMessage m) =>
         MimeMail.BuildAsync(m, new MailboxAddress("Иванов Иван", "ivanov@test.ru"),
             (_, _) => throw new InvalidOperationException(), CancellationToken.None);
@@ -49,5 +52,40 @@ public class MimeEncodingTests
         var mime = await Build(new OutgoingMessage { Subject = "Тест", Body = "Строка 1\nСтрока 2", BodyIsHtml = false });
         Assert.StartsWith("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">", mime.HtmlBody);
         Assert.Contains("Строка 1", mime.HtmlBody);
+    }
+
+    private static byte[] Raw(string headers, byte[] body) =>
+        Encoding.ASCII.GetBytes("From: a@test.ru\r\nTo: b@test.ru\r\nSubject: x\r\nMIME-Version: 1.0\r\n" + headers + "\r\n\r\n")
+            .Concat(body).ToArray();
+
+    [Theory]
+    [InlineData("Content-Type: text/plain", 1251)]                       // no charset: Russian default
+    [InlineData("Content-Type: text/plain; charset=us-ascii", 1251)]     // mislabelled 8-bit
+    [InlineData("Content-Type: text/plain; charset=koi8-r", 20866)]      // declared and honoured
+    [InlineData("Content-Type: text/plain; charset=utf-8", 65001)]
+    [InlineData("Content-Type: text/plain", 65001)]                      // undeclared but valid UTF-8
+    public void Incoming_text_charset_detection(string contentType, int codePage)
+    {
+        var text = "Привет, коллеги! Съешь ещё этих мягких булок.";
+        var mime = MimeMail.Parse(Raw(contentType + "\r\nContent-Transfer-Encoding: 8bit", Encoding.GetEncoding(codePage).GetBytes(text)));
+        var m = new MailMessage();
+        MimeMail.Fill(m, mime, "id");
+        Assert.Equal(text, m.Body.TrimEnd());
+    }
+
+    [Fact]
+    public void Undeclared_html_uses_meta_charset()
+    {
+        var html = "<html><head><meta charset=\"koi8-r\"></head><body>Добрый день</body></html>";
+        var mime = MimeMail.Parse(Raw("Content-Type: text/html\r\nContent-Transfer-Encoding: 8bit", Encoding.GetEncoding(20866).GetBytes(html)));
+        Assert.Contains("Добрый день", MimeMail.HtmlBodyOf(mime));
+    }
+
+    [Fact]
+    public void Raw_8bit_subject_in_windows_1251_is_readable()
+    {
+        var bytes = Encoding.ASCII.GetBytes("From: a@test.ru\r\nSubject: ").Concat(Encoding.GetEncoding(1251).GetBytes("Счёт на оплату"))
+            .Concat(Encoding.ASCII.GetBytes("\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nok")).ToArray();
+        Assert.Equal("Счёт на оплату", MimeMail.Parse(bytes).Subject);
     }
 }

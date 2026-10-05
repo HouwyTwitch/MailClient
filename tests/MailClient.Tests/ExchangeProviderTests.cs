@@ -417,6 +417,28 @@ public class ExchangeProviderTests
         Assert.Single(page.Items);
     }
 
+    [Fact]
+    public async Task Server_busy_response_message_uses_message_xml_backoff()
+    {
+        const string busy = """
+            <m:FindItemResponseMessage ResponseClass="Error"><m:MessageText>busy</m:MessageText><m:ResponseCode>ErrorServerBusy</m:ResponseCode>
+              <m:DescriptiveLinkKey>0</m:DescriptiveLinkKey>
+              <m:MessageXml><t:Value Name="BackOffMilliseconds">10</t:Value></m:MessageXml></m:FindItemResponseMessage>
+            """;
+        var fake = new FakeEws()
+            .On("FindItem", Response("FindItem", busy))
+            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(IdOnly("AAA=")))))
+            .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
+        using var p = fake.CreateProvider();
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var page = await p.GetMessagesAsync("inbox", 0, 10);
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"waited {sw.Elapsed} instead of the server's 10 ms");
+        Assert.Equal(2, fake.All("FindItem").Count());
+        Assert.Single(page.Items);
+    }
+
     private sealed class DropOnce : HttpMessageHandler
     {
         private readonly FakeEws _inner;

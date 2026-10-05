@@ -76,6 +76,11 @@ public sealed class MessagePage
 public sealed class FolderSyncResult
 {
     public List<MessageSummary> CreatedOrUpdated { get; } = new();
+    /// <summary>
+    /// Ids in <see cref="CreatedOrUpdated"/> that are new to the folder (EWS Create change, new IMAP UID), as
+    /// opposed to updates of known messages; only these may raise "new mail" notifications.
+    /// </summary>
+    public HashSet<string> Created { get; } = new();
     public List<string> Deleted { get; } = new();
     /// <summary>Read-flag only changes (item id → read state).</summary>
     public Dictionary<string, bool> ReadFlagChanges { get; } = new();

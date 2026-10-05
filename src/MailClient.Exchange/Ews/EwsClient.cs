@@ -246,9 +246,18 @@ public sealed class EwsClient : IDisposable
             var result = body.Elements().FirstOrDefault()
                 ?? throw new MailServiceException("Некорректный ответ сервера (пустое тело SOAP).");
 
-            // Throttling can also surface as a response message error.
-            if (result.Descendants(M + "ResponseCode").Any(c => c.Value == "ErrorServerBusy"))
-                return (null, Backoff(null), null);
+            // Throttling can also surface as a response message error; like Thunderbird, honour the
+            // BackOffMilliseconds the server puts into MessageXml. When only part of a batch was throttled the
+            // rest has already been executed, so only idempotent operations may be repeated as a whole.
+            var codes = result.Descendants(M + "ResponseCode").ToList();
+            var busyCodes = codes.Where(c => c.Value == "ErrorServerBusy").ToList();
+            if (busyCodes.Count > 0 && (busyCodes.Count == codes.Count || IdempotentOperations.Contains(name)))
+            {
+                var hint = busyCodes.Select(c => c.Parent?.Element(M + "MessageXml")).Where(x => x != null)
+                    .SelectMany(x => x!.Descendants())
+                    .FirstOrDefault(e => e.Name.LocalName == "Value" && (string?)e.Attribute("Name") == "BackOffMilliseconds")?.Value;
+                return (null, Backoff(hint), null);
+            }
             return (result, null, null);
         }
     }

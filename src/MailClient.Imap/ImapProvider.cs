@@ -508,8 +508,13 @@ public sealed class ImapProvider : IMailProvider
             var toFetch = batch.Concat(refetch).Distinct().Select(u => new UniqueId(f.UidValidity, u)).ToList();
             if (toFetch.Count > 0)
             {
+                var isNew = new HashSet<uint>(batch);
                 foreach (var s in await f.FetchAsync(toFetch, SummaryRequest(), ct).ConfigureAwait(false))
-                    result.CreatedOrUpdated.Add(ToSummary(s, f));
+                {
+                    var summary = ToSummary(s, f);
+                    result.CreatedOrUpdated.Add(summary);
+                    if (isNew.Contains(s.UniqueId.Id)) result.Created.Add(summary.Id);
+                }
             }
 
             var newKnown = new HashSet<uint>(known.Where(serverFlags.ContainsKey).Concat(batch));

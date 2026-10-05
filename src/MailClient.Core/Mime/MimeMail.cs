@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Net;
+using System.Text;
+using System.Text.RegularExpressions;
 using MailClient.Core.Models;
 using MailClient.Core.Rendering;
 using MailClient.Core.Services;
@@ -13,7 +15,7 @@ namespace MailClient.Core.Mime;
 /// and parsed locally, and outgoing messages (including reply quotes, forwarded attachments and threading
 /// headers) are composed locally and handed to the server as MIME.
 /// </summary>
-public static class MimeMail
+public static partial class MimeMail
 {
     /// <summary>Separates the item id from the MIME part index inside attachment ids.</summary>
     public const char PartSeparator = '\u001E';
@@ -37,7 +39,90 @@ public static class MimeMail
         return f;
     }
 
-    public static MimeMessage Parse(byte[] mime) => MimeMessage.Load(new MemoryStream(mime));
+    /// <summary>
+    /// Fallback for raw 8-bit headers without RFC 2047 encoding: Thunderbird uses the locale's default
+    /// charset (mailnews.view_default_charset), which is windows-1251 for Russian. UTF-8 is still tried first.
+    /// </summary>
+    private static readonly ParserOptions Parser = CreateParser();
+
+    private static ParserOptions CreateParser()
+    {
+        // Field initializers run before a static constructor body, so the code page provider is registered here.
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var o = ParserOptions.Default.Clone();
+        o.CharsetEncoding = Encoding.GetEncoding(1251);
+        return o;
+    }
+
+    public static MimeMessage Parse(byte[] mime) => MimeMessage.Load(Parser, new MemoryStream(mime));
+
+    /// <summary>HTML body with Thunderbird-like charset detection (see <see cref="DecodeText"/>).</summary>
+    public static string? HtmlBodyOf(MimeMessage message) =>
+        message.HtmlBody is null ? null : BodyPart(message, html: true) is { } p ? DecodeText(p) : message.HtmlBody;
+
+    /// <summary>Plain-text body with Thunderbird-like charset detection (see <see cref="DecodeText"/>).</summary>
+    public static string? TextBodyOf(MimeMessage message) =>
+        message.TextBody is null ? null : BodyPart(message, html: false) is { } p ? DecodeText(p) : message.TextBody;
+
+    private static TextPart? BodyPart(MimeMessage message, bool html) =>
+        message.BodyParts.OfType<TextPart>().FirstOrDefault(t => !t.IsAttachment && (html ? t.IsHtml : t.IsPlain));
+
+    /// <summary>
+    /// Decodes a text part. A declared charset is honoured unless the bytes contradict it (8-bit data labelled
+    /// us-ascii, invalid UTF-8). Undeclared or contradicted parts are decoded as UTF-8 when valid, then by the
+    /// HTML &lt;meta&gt; charset, then as windows-1251 — the charset of most Russian mail without a label.
+    /// </summary>
+    public static string DecodeText(TextPart part)
+    {
+        if (part.Content is null) return "";
+        using var ms = new MemoryStream();
+        part.Content.DecodeTo(ms);
+        var bytes = ms.ToArray();
+        var declared = part.ContentType.Charset;
+        var has8Bit = bytes.Any(b => b >= 0x80);
+        if (!string.IsNullOrWhiteSpace(declared) && TryGetEncoding(declared) is { } enc)
+        {
+            var isAscii = enc.CodePage is 20127;
+            var isUtf8 = enc.CodePage is 65001;
+            if (!has8Bit || (!isAscii && !isUtf8) || (isUtf8 && IsValidUtf8(bytes))) return enc.GetString(bytes);
+        }
+        if (!has8Bit || IsValidUtf8(bytes)) return Encoding.UTF8.GetString(bytes);
+        if (part.IsHtml)
+        {
+            var head = Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, 4096));
+            var meta = MetaCharsetRegex().Match(head);
+            if (meta.Success && TryGetEncoding(meta.Groups["cs"].Value) is { CodePage: not 65001 and not 20127 } metaEnc)
+                return metaEnc.GetString(bytes);
+        }
+        return Encoding.GetEncoding(1251).GetString(bytes);
+    }
+
+    private static Encoding? TryGetEncoding(string charset)
+    {
+        var name = charset.Trim().Trim('"', '\'').ToLowerInvariant();
+        // Aliases produced by Russian mailers that .NET does not know.
+        name = name switch
+        {
+            "cp1251" or "win-1251" or "windows1251" or "win1251" => "windows-1251",
+            "cp866" or "ibm-866" => "ibm866",
+            "koi8r" => "koi8-r",
+            "utf8" => "utf-8",
+            _ => name,
+        };
+        try { return Encoding.GetEncoding(name); }
+        catch (ArgumentException) { return null; }
+    }
+
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    private static bool IsValidUtf8(byte[] bytes)
+    {
+        try { StrictUtf8.GetCharCount(bytes); return true; }
+        catch (DecoderFallbackException) { return false; }
+    }
+
+    [GeneratedRegex(@"<meta[^>]+charset\s*=\s*[""']?(?<cs>[A-Za-z0-9_\-:.]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex MetaCharsetRegex();
 
     public static byte[] ToBytes(MimeMessage message, FormatOptions format)
     {
@@ -79,8 +164,9 @@ public static class MimeMail
         if (m.DateReceived == default) m.DateReceived = m.DateSent;
         m.InternetMessageId = mime.MessageId is { Length: > 0 } mid ? $"<{mid}>" : "";
         m.IsReadReceiptRequested = mime.Headers.Contains(HeaderId.DispositionNotificationTo);
-        m.BodyIsHtml = mime.HtmlBody != null;
-        m.Body = mime.HtmlBody ?? mime.TextBody ?? "";
+        var html = HtmlBodyOf(mime);
+        m.BodyIsHtml = html != null;
+        m.Body = html ?? TextBodyOf(mime) ?? "";
         if (m.Importance == Importance.Normal)
             m.Importance = mime.Importance switch { MessageImportance.High => Importance.High, MessageImportance.Low => Importance.Low, _ => Importance.Normal };
 
@@ -172,9 +258,9 @@ public static class MimeMail
         if (message.Action is ComposeAction.Reply or ComposeAction.ReplyAll or ComposeAction.Forward && message.ReferenceItemId != null)
         {
             var original = await loadOriginal(message.ReferenceItemId, ct).ConfigureAwait(false);
-            var originalHtml = original.HtmlBody != null
-                ? MessageHtmlBuilder.BodyFragment(MessageHtmlBuilder.StripDangerous(original.HtmlBody))
-                : MessageHtmlBuilder.TextToHtml(original.TextBody ?? "");
+            var originalHtml = HtmlBodyOf(original) is { } oh
+                ? MessageHtmlBuilder.BodyFragment(MessageHtmlBuilder.StripDangerous(oh))
+                : MessageHtmlBuilder.TextToHtml(TextBodyOf(original) ?? "");
             var forward = message.Action == ComposeAction.Forward;
             html = MessageHtmlBuilder.BodyFragment(html) + "<br>" +
                    QuoteHeader(original, forward ? "-------- Пересылаемое сообщение --------" : "-------- Исходное сообщение --------") +

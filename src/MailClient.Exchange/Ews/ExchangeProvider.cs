@@ -469,7 +469,11 @@ public sealed class ExchangeProvider : IMailProvider
             SyncState = msg.Element(M + "SyncState")?.Value ?? "",
             IncludesLastItem = ParseBool(msg.Element(M + "IncludesLastItemInRange")?.Value),
         };
+        // Changes come in chronological order (sync_messages_for_folder.rs); the last one per item wins.
+        // Created/updated items are fetched afterwards, so their fetched state supersedes earlier read-flag changes.
         var toFetch = new List<string>();
+        var created = new HashSet<string>();
+        var deleted = new HashSet<string>();
         foreach (var change in msg.Element(M + "Changes")?.Elements() ?? Enumerable.Empty<XElement>())
         {
             switch (change.Name.LocalName)
@@ -477,20 +481,33 @@ public sealed class ExchangeProvider : IMailProvider
                 case "Create":
                 case "Update":
                     foreach (var item in ItemElements(change))
-                        if ((string?)item.Element(T + "ItemId")?.Attribute("Id") is { } id) toFetch.Add(id);
+                    {
+                        if ((string?)item.Element(T + "ItemId")?.Attribute("Id") is not { } id) continue;
+                        if (!toFetch.Contains(id)) toFetch.Add(id);
+                        if (change.Name.LocalName == "Create") created.Add(id);
+                        deleted.Remove(id);
+                        result.ReadFlagChanges.Remove(id);
+                    }
                     break;
                 case "Delete":
                     if (change.Element(T + "ItemId")?.Attribute("Id")?.Value is { } deletedId)
-                        result.Deleted.Add(deletedId);
+                    {
+                        deleted.Add(deletedId);
+                        toFetch.Remove(deletedId);
+                        created.Remove(deletedId);
+                        result.ReadFlagChanges.Remove(deletedId);
+                    }
                     break;
                 case "ReadFlagChange":
-                    if (change.Element(T + "ItemId")?.Attribute("Id")?.Value is { } readId)
+                    if (change.Element(T + "ItemId")?.Attribute("Id")?.Value is { } readId && !toFetch.Contains(readId))
                         result.ReadFlagChanges[readId] = ParseBool(change.Element(T + "IsRead")?.Value);
                     break;
             }
         }
-        var deleted = new HashSet<string>(result.Deleted);
-        result.CreatedOrUpdated.AddRange(await GetSummariesAsync(toFetch.Where(id => !deleted.Contains(id)), folderId, ct).ConfigureAwait(false));
+        result.Deleted.AddRange(deleted);
+        result.CreatedOrUpdated.AddRange(await GetSummariesAsync(toFetch, folderId, ct).ConfigureAwait(false));
+        foreach (var m in result.CreatedOrUpdated)
+            if (created.Contains(m.Id)) result.Created.Add(m.Id);
         return result;
     }
 

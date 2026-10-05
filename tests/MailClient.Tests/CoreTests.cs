@@ -196,6 +196,35 @@ public class SyncEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task Updates_do_not_notify_and_fetched_state_beats_older_read_flag_changes()
+    {
+        var fake = new FakeEws()
+            .On("SyncFolderItems", FakeEws.Response("SyncFolderItems", FakeEws.Success("SyncFolderItems",
+                $"<m:SyncState>S1</m:SyncState><m:IncludesLastItemInRange>true</m:IncludesLastItemInRange><m:Changes><t:Create>{Item("u1", false)}</t:Create><t:Create>{Item("u2", false)}</t:Create></m:Changes>")))
+            .On("SyncFolderItems", FakeEws.Response("SyncFolderItems", FakeEws.Success("SyncFolderItems",
+                "<m:SyncState>S2</m:SyncState><m:IncludesLastItemInRange>true</m:IncludesLastItemInRange><m:Changes>" +
+                "<t:ReadFlagChange><t:ItemId Id=\"u1\"/><t:IsRead>true</t:IsRead></t:ReadFlagChange>" +
+                $"<t:Update>{Item("u1", false)}</t:Update>" +
+                "<t:ReadFlagChange><t:ItemId Id=\"u2\"/><t:IsRead>true</t:IsRead></t:ReadFlagChange>" +
+                "</m:Changes>")));
+        fake.ServeItems(Store);
+        using var provider = fake.CreateProvider();
+        var cache = new LocalCache(_path);
+        cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Inbox" } });
+        var engine = new SyncEngine(provider, cache);
+        var arrived = new List<MessageSummary>();
+        engine.NewMessagesArrived += (_, list) => arrived.AddRange(list);
+
+        await engine.SyncFolderAsync("F");
+        await engine.SyncFolderAsync("F");
+
+        Assert.Empty(arrived);                                   // an update of a known unread message is not new mail
+        var byId = cache.GetMessages("F", 0, 10).ToDictionary(m => m.Id);
+        Assert.False(byId["u1"].IsRead);                         // the later Update (fetched state) wins
+        Assert.True(byId["u2"].IsRead);
+    }
+
+    [Fact]
     public async Task Invalid_sync_state_triggers_full_resync()
     {
         var fake = new FakeEws()
