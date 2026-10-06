@@ -49,5 +49,12 @@ public sealed class MailFolder
         return FolderKind.Other;
     }
 
+    /// <summary>A copy with another display name.</summary>
+    public MailFolder WithName(string name) => new()
+    {
+        Id = Id, ChangeKey = ChangeKey, ParentId = ParentId, DisplayName = name, FolderClass = FolderClass,
+        TotalCount = TotalCount, UnreadCount = UnreadCount, ChildFolderCount = ChildFolderCount, WellKnown = WellKnown,
+    };
+
     public override string ToString() => DisplayName;
 }

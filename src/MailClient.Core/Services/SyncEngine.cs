@@ -8,12 +8,16 @@ namespace MailClient.Core.Services;
 /// the folder tree is refreshed, and each folder is synced with SyncFolderItems (IMAP: UIDs and CONDSTORE)
 /// so only changes travel over the wire.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001",
+    Justification = "SemaphoreSlim only needs disposing when its wait handle is used; the per-folder gates are not disposed either")]
 public sealed class SyncEngine
 {
     private readonly IMailProvider _provider;
     private readonly LocalCache _cache;
     /// <summary>One lock per folder: syncing a large Inbox must not block opening another folder.</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _gates = new();
+    private readonly SemaphoreSlim _foldersGate = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _outOfStep = new();
 
     public SyncEngine(IMailProvider provider, LocalCache cache)
     {
@@ -34,12 +38,35 @@ public sealed class SyncEngine
     /// <summary>Raised for unread messages that arrived since the previous sync (not on the initial sync).</summary>
     public event EventHandler<IReadOnlyList<MessageSummary>>? NewMessagesArrived;
 
+    /// <summary>
+    /// Refreshes the folder tree. One refresh at a time: a background refresh started before a rename must not
+    /// finish after the refresh that follows it and put the old name back.
+    /// </summary>
     public async Task<IReadOnlyList<MailFolder>> SyncFoldersAsync(CancellationToken ct = default)
     {
-        var folders = await _provider.GetFoldersAsync(ct).ConfigureAwait(false);
-        _cache.ReplaceFolders(folders);
-        FoldersChanged?.Invoke(this, EventArgs.Empty);
-        return folders;
+        await _foldersGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var folders = await _provider.GetFoldersAsync(ct).ConfigureAwait(false);
+            foreach (var id in _cache.ReplaceFolders(folders)) _outOfStep.Enqueue(id);
+            FoldersChanged?.Invoke(this, EventArgs.Empty);
+            return folders;
+        }
+        finally
+        {
+            _foldersGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Synchronized folders whose server counters (unread, total) differ from the cache since the last folder
+    /// refresh, e.g. mail delivered into a subfolder by a server rule. Each id is returned once.
+    /// </summary>
+    public IReadOnlyList<string> TakeFoldersOutOfStep()
+    {
+        var ids = new List<string>();
+        while (_outOfStep.TryDequeue(out var id)) if (!ids.Contains(id)) ids.Add(id);
+        return ids;
     }
 
     /// <summary>

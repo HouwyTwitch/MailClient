@@ -227,7 +227,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var expanded = new HashSet<string>(Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => n.IsExpanded).Select(n => n.Id));
         bool firstBuild = Roots.Count == 0;
-        var selectedId = SelectedFolder?.Id;
+        var selected = SelectedFolder;
+        var selectedId = selected?.Id;
 
         _restoringSelection = true;
         try
@@ -257,6 +258,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             FolderNodeViewModel? toSelect = null;
             if (selectedId != null) toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Id == selectedId);
+            // A folder whose id changed (IMAP rename): the same account, parent and name.
+            if (toSelect == null && selected is { IsAccountRoot: false })
+                toSelect = Roots.Where(r => r.Session == selected.Session).SelectMany(r => r.SelfAndDescendants())
+                    .FirstOrDefault(n => !n.IsAccountRoot && n.Name == selected.Name && n.Parent?.Id == selected.Parent?.Id);
             if (toSelect == null && (firstBuild || selectedId == null || selectedId.StartsWith("root:", StringComparison.Ordinal)))
                 toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Folder.WellKnown == WellKnownFolder.Inbox);
             if (toSelect != null)
@@ -526,10 +531,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (changed.Count == 0) return;
         foreach (var i in changed) i.IsRead = read;
         folder.Unread = Math.Max(0, folder.Unread + (read ? -changed.Count : changed.Count));
-        UpdateUnreadTotals();
         folder.Session.Cache.SetReadState(changed.Select(i => i.Id), read);
+        SettleUnread(folder);
+        UpdateUnreadTotals();
         await RunAsync("Не удалось изменить состояние «прочитано»",
             () => folder.Session.Provider.SetReadStateAsync(changed.Select(i => i.Id), read));
+    }
+
+    /// <summary>
+    /// A synchronized folder's counter is the number of unread messages in its cache (what the list shows);
+    /// storing it keeps a later folder refresh from bringing back an outdated server counter.
+    /// </summary>
+    private static void SettleUnread(FolderNodeViewModel folder)
+    {
+        if (folder.Session.Cache.GetSyncState(folder.Id) == null) return;
+        folder.Unread = folder.Session.Cache.RefreshFolderCounts(folder.Id).unread;
     }
 
     [RelayCommand] private Task MarkRead() => SetReadAsync(Targets.ToList(), true);
@@ -553,6 +569,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             await Task.Run(() => folder.Session.Cache.SetReadState(UnreadIds(), true));
             folder.Unread = 0;
+            SettleUnread(folder);
             foreach (var m in Messages) m.IsRead = true;
             UpdateUnreadTotals();
         });
@@ -592,6 +609,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             folder.Unread = Math.Max(0, folder.Unread - removedUnread);
             folder.Session.Cache.DeleteMessages(items.Select(i => i.Id));
+            SettleUnread(folder);
         }
         UpdateUnreadTotals();
         if (Messages.Count > 0 && index >= 0) SelectedMessage = Messages[Math.Min(index, Messages.Count - 1)];
@@ -859,11 +877,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var folder = SelectedFolder;
         if (folder is not { CanModify: true }) return;
-        var name = WindowFactory.Prompt("Переименование папки", "Новое имя папки:", folder.Name);
+        var name = WindowFactory.Prompt("Переименование папки", "Новое имя папки:", folder.Name)?.Trim();
         if (string.IsNullOrWhiteSpace(name) || name == folder.Name) return;
         await RunAsync("Не удалось переименовать папку", async () =>
         {
-            await folder.Session.Provider.RenameFolderAsync(folder.Id, name.Trim());
+            await folder.Session.Provider.RenameFolderAsync(folder.Id, name);
+            // Shown at once; the refresh below brings the server's view (on IMAP the folder also gets a new id,
+            // and the tree keeps it selected by its new name).
+            folder.Rename(name);
+            folder.Session.Cache.RenameFolder(folder.Id, name);
+            OnPropertyChanged(nameof(FolderTitle));
+            UpdateTitle();
+            StatusText = $"Папка переименована: «{name}»";
             await folder.Session.Sync.SyncFoldersAsync();
         });
     }

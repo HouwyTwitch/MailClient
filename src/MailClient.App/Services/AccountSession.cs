@@ -84,6 +84,9 @@ public sealed class AccountSession : IDisposable
                 var targets = new List<string>();
                 if (InboxId is { } inbox) targets.Add(inbox);
                 if (ActiveFolderId is { } active && !targets.Contains(active)) targets.Add(active);
+                // Folders whose counters changed on the server (new mail filed by a rule, read elsewhere).
+                foreach (var id in Sync.TakeFoldersOutOfStep().Take(20))
+                    if (!targets.Contains(id)) targets.Add(id);
                 foreach (var folderId in targets)
                 {
                     await Sync.PrimeFolderAsync(folderId, 100, ct).ConfigureAwait(false);

@@ -101,9 +101,16 @@ public sealed class LocalCache
 
     // ------------------------------------------------------------------ folders
 
-    /// <summary>Replaces the cached folder tree, keeping sync states of folders that still exist.</summary>
-    public void ReplaceFolders(IEnumerable<MailFolder> folders)
+    /// <summary>
+    /// Replaces the cached folder tree, keeping sync states of folders that still exist. A folder that has been
+    /// synchronized keeps the counters of its cached messages, which is what the user sees and can change:
+    /// the server's own counter may include items the list never shows, or lag behind a "mark as read"
+    /// that is still on its way. Returns the synchronized folders whose server counters differ from the cache,
+    /// so they can be synchronized to settle the difference.
+    /// </summary>
+    public IReadOnlyList<string> ReplaceFolders(IEnumerable<MailFolder> folders)
     {
+        var outOfStep = new List<string>();
         using var c = Open();
         using var tx = c.BeginTransaction();
         var states = new Dictionary<string, string?>();
@@ -115,9 +122,23 @@ public sealed class LocalCache
         }
         var list = folders.ToList();
         var keep = new HashSet<string>(list.Select(f => f.Id));
+        var cachedCounts = new Dictionary<string, (int Total, int Unread)>();
+        using (var read = c.CreateCommand())
+        {
+            read.CommandText = "SELECT folder_id, COUNT(*), SUM(CASE WHEN is_read=0 THEN 1 ELSE 0 END) FROM messages GROUP BY folder_id";
+            using var r = read.ExecuteReader();
+            while (r.Read()) cachedCounts[r.GetString(0)] = (r.GetInt32(1), r.IsDBNull(2) ? 0 : r.GetInt32(2));
+        }
         Exec(c, "DELETE FROM folders");
         foreach (var f in list)
         {
+            int total = f.TotalCount, unread = f.UnreadCount;
+            if (states.TryGetValue(f.Id, out var synced) && synced != null)
+            {
+                var cached = cachedCounts.GetValueOrDefault(f.Id);
+                if (cached.Unread != f.UnreadCount || cached.Total != f.TotalCount) outOfStep.Add(f.Id);
+                (total, unread) = cached;
+            }
             using var cmd = c.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO folders(id, change_key, parent_id, name, folder_class, total, unread, child_count, well_known, sync_state)
@@ -128,8 +149,8 @@ public sealed class LocalCache
             cmd.Parameters.AddWithValue("$p", (object?)f.ParentId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$n", f.DisplayName);
             cmd.Parameters.AddWithValue("$fc", f.FolderClass);
-            cmd.Parameters.AddWithValue("$t", f.TotalCount);
-            cmd.Parameters.AddWithValue("$u", f.UnreadCount);
+            cmd.Parameters.AddWithValue("$t", total);
+            cmd.Parameters.AddWithValue("$u", unread);
             cmd.Parameters.AddWithValue("$cc", f.ChildFolderCount);
             cmd.Parameters.AddWithValue("$wk", (int)f.WellKnown);
             cmd.Parameters.AddWithValue("$ss", states.TryGetValue(f.Id, out var s) && s != null ? s : DBNull.Value);
@@ -142,6 +163,7 @@ public sealed class LocalCache
             del.ExecuteNonQuery();
         }
         tx.Commit();
+        return outOfStep;
     }
 
     public List<MailFolder> GetFolders()
@@ -169,6 +191,17 @@ public sealed class LocalCache
         return list;
     }
 
+    /// <summary>Stores a folder's new name (after a rename on the server, before the next folder refresh).</summary>
+    public void RenameFolder(string folderId, string name)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE folders SET name=$n WHERE id=$id";
+        cmd.Parameters.AddWithValue("$id", folderId);
+        cmd.Parameters.AddWithValue("$n", name);
+        cmd.ExecuteNonQuery();
+    }
+
     public string? GetSyncState(string folderId)
     {
         using var c = Open();
@@ -188,7 +221,10 @@ public sealed class LocalCache
         cmd.ExecuteNonQuery();
     }
 
-    /// <summary>Recomputes the cached total/unread counters of a folder from cached messages.</summary>
+    /// <summary>
+    /// Recomputes the cached total/unread counters of a synchronized folder from its cached messages (a folder
+    /// that was never synchronized holds only part of its messages and keeps the server's counters).
+    /// </summary>
     public (int total, int unread) RefreshFolderCounts(string folderId)
     {
         using var c = Open();
@@ -197,7 +233,7 @@ public sealed class LocalCache
             UPDATE folders SET
               total  = (SELECT COUNT(*) FROM messages WHERE folder_id=$id),
               unread = (SELECT COUNT(*) FROM messages WHERE folder_id=$id AND is_read=0)
-            WHERE id=$id;
+            WHERE id=$id AND sync_state IS NOT NULL;
             SELECT total, unread FROM folders WHERE id=$id;
             """;
         cmd.Parameters.AddWithValue("$id", folderId);
