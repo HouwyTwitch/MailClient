@@ -19,9 +19,9 @@ public static class Program
             return 0;
         }
 
-        if (args.Contains(Controls.WebKitProbe.ProbeArgument)) return Controls.WebKitProbe.RunInChild();
-
         CodePages.EnsureRegistered();
+        if (args.Contains(Controls.WebKitProbe.ProbeArgument)) return Controls.WebKitProbe.RunInChild(args);
+
         using var instance = SingleInstance.TryAcquire(args);
         if (instance == null)
         {

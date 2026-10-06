@@ -3,6 +3,8 @@ using System.IO;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
 using MailClient.App.Services;
 
 namespace MailClient.Linux.Controls;
@@ -94,32 +96,29 @@ public static class WebKitProbe
         }
     }
 
-    /// <summary>The probe itself (child process): a web view with a small page; prints the marker once it loaded.</summary>
-    public static int RunInChild()
+    /// <summary>
+    /// The probe itself (child process): the program starts as usual but without single-instance handling and
+    /// without connecting to mail servers, so WebKitGTK is embedded exactly as in a real start.
+    /// </summary>
+    public static int RunInChild(string[] args)
     {
         Environment.SetEnvironmentVariable("MAILCLIENT_WEBKIT_PROBED", "1");
-        return AppBuilder.Configure<Application>().UsePlatformDetect().StartWithClassicDesktopLifetime([], lifetime =>
+        App.StartupArgs = args;
+        return Program.BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
+
+    /// <summary>Once the main window is open: renders a message in a web view, prints the marker and exits.</summary>
+    internal static void RunChecks(Window owner, IClassicDesktopStyleApplicationLifetime lifetime)
+    {
+        var view = new HtmlView();
+        var window = new Window { Width = 400, Height = 300, Content = view, ShowInTaskbar = false };
+        window.Show(owner);
+        view.Html = "<html><body><p>Проверка <b>WebKitGTK</b></p><ul><li>список</li></ul></body></html>";
+        DispatcherTimer.RunOnce(() =>
         {
-            lifetime.Startup += (_, _) =>
-            {
-                var web = new NativeWebView();
-                var mode = Environment.GetEnvironmentVariable("MAILCLIENT_PROBE_MODE");
-                Control content = web;
-                if (mode == "hidden") content = new Panel { IsVisible = false, Children = { web } };
-                if (mode == "nonav") web.NavigationStarted += (_, e) => e.Cancel = false;
-                var window = new Window { Width = 300, Height = 200, Content = content, ShowInTaskbar = false };
-                if (mode == "hidden") _ = Task.Delay(1500).ContinueWith(_ => Avalonia.Threading.Dispatcher.UIThread.Post(() => { Console.WriteLine(OkMarker); lifetime.Shutdown(0); }));
-                web.NavigationCompleted += async (_, e) =>
-                {
-                    await Task.Delay(1500); // let the page render (most crashes happen while compositing)
-                    Console.WriteLine(e.IsSuccess ? OkMarker : "probe:navigation-failed");
-                    lifetime.Shutdown(e.IsSuccess ? 0 : 2);
-                };
-                window.Show();
-                web.NavigateToString("<html><body><p>Проверка <b>WebKitGTK</b></p></body></html>", new Uri("about:blank"));
-                _ = Task.Delay(20_000).ContinueWith(_ => Avalonia.Threading.Dispatcher.UIThread.Post(() => lifetime.Shutdown(3)));
-            };
-        });
+            Console.WriteLine(OkMarker);
+            lifetime.Shutdown(0);
+        }, TimeSpan.FromSeconds(3));
     }
 
     /// <summary>Identifies the installed engine and this program build; a change of either repeats the probe.</summary>
