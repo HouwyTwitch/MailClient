@@ -33,7 +33,7 @@ public sealed class AutodiscoverClient
 
     public AutodiscoverClient(AccountSettings account, ICredentialProvider credentials)
         : this(() => ExchangeHttp.CreateClient(account, credentials),
-               new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) }) { }
+               new HttpClient(ExchangeHttp.NewSocketsHandler()) { Timeout = TimeSpan.FromSeconds(20) }) { }
 
     internal AutodiscoverClient(Func<HttpClient> authenticatedClientFactory, HttpClient anonymousClient)
     {
@@ -46,6 +46,9 @@ public sealed class AutodiscoverClient
 
     /// <summary>Explanation of the first 401 seen, reported if no endpoint succeeds.</summary>
     public string? LastAuthFailure { get; private set; }
+
+    /// <summary>A proxy refused the request (HTTP 407): reported when no endpoint answered.</summary>
+    private string? _proxyFailure;
 
     public async Task<AutodiscoverResult> DiscoverAsync(string emailAddress, CancellationToken ct = default)
     {
@@ -86,6 +89,7 @@ public sealed class AutodiscoverClient
             email = nextEmail;
         }
         if (LastAuthFailure != null) throw new MailAuthenticationException(LastAuthFailure);
+        if (_proxyFailure != null) throw new MailConnectionException(_proxyFailure);
         throw new MailServiceException(
             "Не удалось автоматически найти сервер Exchange для этого адреса. Укажите адрес EWS вручную " +
             "(обычно https://mail.<ваш-домен>/EWS/Exchange.asmx) или уточните его у администратора.", "AutodiscoverFailed");
@@ -125,6 +129,12 @@ public sealed class AutodiscoverClient
                         (credentialsSent ? ", login rejected" : ""));
                 LastAuthFailure ??= Http.ExchangeHttp.DescribeAuthFailure(response);
                 return new Outcome(null, null, credentialsSent);
+            }
+            if (response.StatusCode == HttpStatusCode.ProxyAuthenticationRequired)
+            {
+                Log.Add($"{url} → 407 Proxy Authentication Required");
+                _proxyFailure ??= Ews.EwsClient.ProxyAuthenticationMessage(new Uri(url).Host);
+                return new Outcome(null, null);
             }
             if (!response.IsSuccessStatusCode)
             {

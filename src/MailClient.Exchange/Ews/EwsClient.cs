@@ -32,6 +32,9 @@ public sealed class EwsResponseException : MailServiceException
         "ErrorDeleteDistinguishedFolder" or "ErrorCannotDeleteFolder" => "Системную папку удалить нельзя.",
         "ErrorMoveDistinguishedFolder" => "Системную папку переместить нельзя.",
         "ErrorInvalidServerVersion" => "Сервер не поддерживает выбранную версию протокола. Выберите более раннюю версию Exchange в настройках учётной записи.",
+        "ErrorInboxRulesValidationError" => $"Сервер не принял правило: {serverText}",
+        "ErrorOutlookRuleBlobExists" => "Правила были изменены в Outlook. Откройте список правил заново и сохраните ещё раз.",
+        "ErrorRuleNotFound" => "Правило уже удалено на сервере. Откройте список правил заново.",
         "ErrorIrresolvableConflict" or "ErrorChangeKeyRequiredForWriteOperations" => "Объект был изменён на сервере. Обновите папку и повторите действие.",
         _ => $"{serverText} ({code})",
     };
@@ -53,6 +56,7 @@ public sealed class EwsClient : IDisposable
     {
         "GetFolder", "FindFolder", "SyncFolderHierarchy", "FindItem", "GetItem", "SyncFolderItems",
         "GetAttachment", "ResolveNames", "GetUserOofSettingsRequest", "ExpandDL", "GetUserAvailabilityRequest",
+        "GetInboxRules",
     };
 
     private readonly HttpClient _http;
@@ -194,6 +198,8 @@ public sealed class EwsClient : IDisposable
                 MailLog.Warn?.Invoke($"EWS {name}: HTTP 401, сервер предлагает: {string.Join(", ", response.Headers.WwwAuthenticate.Select(h => h.Scheme))}");
                 throw new MailAuthenticationException(Http.ExchangeHttp.DescribeAuthFailure(response));
             }
+            if (response.StatusCode == HttpStatusCode.ProxyAuthenticationRequired)
+                throw new MailConnectionException(ProxyAuthenticationMessage(_endpoint.Host));
             if (response.StatusCode == HttpStatusCode.Forbidden)
                 throw new MailAuthenticationException("Доступ запрещён (HTTP 403). Возможно, для этого почтового ящика отключён доступ по EWS — обратитесь к администратору.");
             if ((int)response.StatusCode is >= 300 and < 400)
@@ -264,6 +270,12 @@ public sealed class EwsClient : IDisposable
             return (result, null, null);
         }
     }
+
+    /// <summary>Explanation for HTTP 407 from a corporate proxy that did not accept the Windows sign-in.</summary>
+    public static string ProxyAuthenticationMessage(string host) =>
+        $"Прокси-сервер организации не пропустил запрос к {host} (HTTP 407: требуется авторизация на прокси). " +
+        "Программа входит на прокси от имени пользователя Windows; если прокси этого не принимает, попросите администратора " +
+        "добавить адрес почтового сервера в исключения прокси (обычно внутренний сервер должен открываться напрямую).";
 
     /// <summary>Returns all response messages (elements carrying a ResponseClass attribute).</summary>
     public static IEnumerable<XElement> ResponseMessages(XElement response) =>

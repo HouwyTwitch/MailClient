@@ -30,13 +30,15 @@ public sealed partial class AttachmentItemViewModel : ObservableObject
 public sealed partial class MessagePreviewViewModel : ObservableObject
 {
     private readonly AccountSession _session;
+    private readonly IReadOnlyList<AccountSession> _sessions;
     private readonly AppSettings _settings;
     private readonly IReadOnlyDictionary<string, (string, byte[])> _inline;
 
-    private MessagePreviewViewModel(AccountSession session, AppSettings settings, MailMessage message,
+    private MessagePreviewViewModel(AccountSession session, IReadOnlyList<AccountSession> sessions, AppSettings settings, MailMessage message,
         IReadOnlyDictionary<string, (string, byte[])> inline)
     {
         _session = session;
+        _sessions = sessions;
         _settings = settings;
         Message = message;
         _inline = inline;
@@ -48,7 +50,8 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
         BuildHtml();
     }
 
-    public static async Task<MessagePreviewViewModel> LoadAsync(AccountSession session, AppSettings settings, string itemId, CancellationToken ct)
+    public static async Task<MessagePreviewViewModel> LoadAsync(AccountSession session, IReadOnlyList<AccountSession> sessions, AppSettings settings,
+        string itemId, CancellationToken ct)
     {
         var message = await session.Sync.GetMessageAsync(itemId, ct);
         var inline = new Dictionary<string, (string, byte[])>(StringComparer.OrdinalIgnoreCase);
@@ -73,7 +76,7 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
                 }
             }
         }
-        return new MessagePreviewViewModel(session, settings, message, inline);
+        return new MessagePreviewViewModel(session, sessions, settings, message, inline);
     }
 
     public MailMessage Message { get; }
@@ -82,11 +85,23 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
     public bool HasAttachments => Attachments.Count > 0;
 
     public string Subject => string.IsNullOrWhiteSpace(Message.Subject) ? "(без темы)" : Message.Subject;
-    public string FromText => Message.From?.DisplayText ?? "(без отправителя)";
+    public IReadOnlyList<RecipientItem> From => Message.From is { } f ? [new RecipientItem(f, "")] : [];
+    public bool HasFrom => Message.From != null;
     public string FromInitials => RuText.Initials(Message.From?.ShortName ?? "");
-    public string ToText => string.Join("; ", Message.To.Select(a => a.DisplayText));
-    public string CcText => string.Join("; ", Message.Cc.Select(a => a.DisplayText));
+    public IReadOnlyList<RecipientItem> To => RecipientItem.List(Message.To);
+    public IReadOnlyList<RecipientItem> Cc => RecipientItem.List(Message.Cc);
     public bool HasCc => Message.Cc.Count > 0;
+
+    /// <summary>The card for a name clicked in the header.</summary>
+    public ContactCardViewModel CreateContactCard(EmailAddress address) => new(_session, address, WriteTo);
+
+    private void WriteTo(EmailAddress address)
+    {
+        var vm = ComposeViewModel.New(_sessions, _session);
+        vm.To = EmailAddress.FormatList([address]);
+        vm.IsDirty = false;
+        Views.WindowFactory.OpenCompose(vm, _settings);
+    }
     public string DateText => RuText.FullDate(Message.DateSent == default ? Message.DateReceived : Message.DateSent);
     public bool IsHighImportance => Message.Importance == Importance.High;
     public bool IsSentOnBehalf => Message.Sender != null && Message.From != null &&

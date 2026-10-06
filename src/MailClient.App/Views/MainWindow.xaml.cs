@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private Point _dragStart;
     private bool _exiting;
     private FolderNodeViewModel? _dropTarget;
+    private ListBoxItem? _pendingSingleSelect;
 
     public MainWindow(MainViewModel vm)
     {
@@ -190,13 +191,36 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ message list
 
-    private void MessageList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void MessageList_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        _vm.SetSelection(MessageList.SelectedItems.OfType<MessageItemViewModel>());
+
+    /// <summary>
+    /// A plain press on a message that is part of a multi-selection must not collapse the selection, or the
+    /// whole group could never be dragged: selecting just that message waits until the button is released
+    /// without a drag (as in Explorer and Outlook).
+    /// </summary>
+    private void MessageList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        _vm.SelectedMessages.Clear();
-        _vm.SelectedMessages.AddRange(MessageList.SelectedItems.OfType<MessageItemViewModel>());
+        _dragStart = e.GetPosition(null);
+        _pendingSingleSelect = null;
+        if (e.ClickCount != 1 || MessageList.SelectedItems.Count < 2 ||
+            (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != 0)
+            return;
+        if (e.OriginalSource is DependencyObject d && FindAncestor<ListBoxItem>(d) is { IsSelected: true } item)
+        {
+            _pendingSingleSelect = item;
+            item.Focus();
+            e.Handled = true;
+        }
     }
 
-    private void MessageList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(null);
+    private void MessageList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_pendingSingleSelect is not { } item) return;
+        _pendingSingleSelect = null;
+        MessageList.SelectedItems.Clear();
+        item.IsSelected = true;
+    }
 
     private void MessageList_PreviewMouseMove(object sender, MouseEventArgs e)
     {
@@ -207,8 +231,19 @@ public partial class MainWindow : Window
             return;
         // Only start dragging from an item, not from the scroll bar.
         if (e.OriginalSource is DependencyObject d && FindAncestor<ListBoxItem>(d) == null) return;
-        var data = new DataObject(DragFormat, MessageList.SelectedItems.OfType<MessageItemViewModel>().Select(m => m.Id).ToArray());
-        DragDrop.DoDragDrop(MessageList, data, DragDropEffects.Move | DragDropEffects.Copy);
+        _pendingSingleSelect = null;
+        var ids = MessageList.SelectedItems.OfType<MessageItemViewModel>().Select(m => m.Id).ToArray();
+        var status = _vm.StatusText;
+        _vm.StatusText = $"Перетаскивание: {RuText.Count(ids.Length, "письмо", "письма", "писем")} — отпустите на папке (Ctrl — копировать)";
+        try
+        {
+            DragDrop.DoDragDrop(MessageList, new DataObject(DragFormat, ids), DragDropEffects.Move | DragDropEffects.Copy);
+        }
+        finally
+        {
+            // The drop handler sets its own result text.
+            if (_vm.StatusText.StartsWith("Перетаскивание:", StringComparison.Ordinal)) _vm.StatusText = status;
+        }
     }
 
     private void MessageList_MouseDoubleClick(object sender, MouseButtonEventArgs e)

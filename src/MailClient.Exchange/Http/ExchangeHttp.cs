@@ -14,18 +14,30 @@ namespace MailClient.Exchange.Http;
 /// </summary>
 public static class ExchangeHttp
 {
+    /// <summary>Product version sent in the User-Agent header and shown in diagnostics ("1.2.3").</summary>
+    public static string ProductVersion { get; } = typeof(ExchangeHttp).Assembly.GetName().Version is { } v
+        ? $"{v.Major}.{v.Minor}.{v.Build}"
+        : "0.0.0";
+
+    /// <summary>
+    /// A handler that goes through the system proxy (Windows proxy settings, including PAC/WPAD scripts) and
+    /// signs in to it as the logged-on Windows user: corporate proxies usually require NTLM/Kerberos (HTTP 407).
+    /// </summary>
+    public static SocketsHttpHandler NewSocketsHandler() => new()
+    {
+        AllowAutoRedirect = false,
+        DefaultProxyCredentials = CredentialCache.DefaultCredentials,
+    };
+
     public static HttpMessageHandler CreateHandler(AccountSettings account, ICredentialProvider credentials)
     {
-        var sockets = new SocketsHttpHandler
-        {
-            // NTLM/Negotiate are connection based - keep connections alive.
-            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            AllowAutoRedirect = false,
-            UseCookies = true,
-            CookieContainer = new CookieContainer(),
-        };
+        var sockets = NewSocketsHandler();
+        // NTLM/Negotiate are connection based - keep connections alive.
+        sockets.PooledConnectionLifetime = TimeSpan.FromMinutes(10);
+        sockets.PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2);
+        sockets.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+        sockets.UseCookies = true;
+        sockets.CookieContainer = new CookieContainer();
 
         if (CertificateTrust.CreateCallback(account) is { } validate)
             sockets.SslOptions = new SslClientAuthenticationOptions { RemoteCertificateValidationCallback = validate };
@@ -77,7 +89,7 @@ public static class ExchangeHttp
             // Large attachments travel base64-encoded inside SOAP; allow generous time.
             Timeout = TimeSpan.FromMinutes(10),
         };
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MailClient", "0.1"));
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MailClient", ProductVersion));
         // No routing hints (X-AnchorMailbox): on-premises Exchange does not need them and some proxies reject them.
         return client;
     }

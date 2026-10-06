@@ -36,7 +36,7 @@ public partial class AccountWindow : Window
         _account = account;
         _credentials = credentials;
         _isNew = isNew;
-        _org = OrganizationDefaults.Load();
+        _org = OrganizationDefaults.Current;
         if (isNew) _org.ApplyTo(account);
         _certPem = account.TrustedRootCertificatesPem;
 

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using MailClient.Core;
 using MailClient.Core.Mime;
 using MailClient.Core.Models;
+using MailClient.Core.Rules;
 using MailClient.Core.Security;
 using MailClient.Core.Services;
 using MailKit;
@@ -43,7 +44,8 @@ public sealed class ImapProvider : IMailProvider
     }
 
     public AccountSettings Account { get; }
-    public ProviderCapabilities Capabilities => ProviderCapabilities.None;
+    /// <summary>Forwarding rules need ManageSieve on the server; without it the rules window explains where to set them up.</summary>
+    public ProviderCapabilities Capabilities => ProviderCapabilities.ForwardingRules;
 
     // ===================================================================== connection
 
@@ -804,6 +806,64 @@ public sealed class ImapProvider : IMailProvider
     public Task RespondToMeetingAsync(string itemId, MeetingResponse response, string? comment = null, CancellationToken ct = default) => throw NotSupported("Ответы на приглашения");
     public Task<OofSettings> GetOutOfOfficeAsync(CancellationToken ct = default) => throw NotSupported("Автоответы");
     public Task SetOutOfOfficeAsync(OofSettings settings, CancellationToken ct = default) => throw NotSupported("Автоответы");
+
+    // ===================================================================== forwarding rules (Sieve)
+
+    /// <summary>Name of the script created when the server has no active one.</summary>
+    private const string SieveScriptName = "mailclient";
+
+    private static readonly TimeSpan SieveTimeout = TimeSpan.FromSeconds(60);
+
+    private Task<ManageSieveClient> ConnectSieveAsync(CancellationToken ct) =>
+        ManageSieveClient.ConnectAsync(Account.ImapHost.Trim(), Account.SievePort > 0 ? Account.SievePort : ManageSieveClient.DefaultPort,
+            requireTls: Account.ImapSecurity != ConnectionSecurity.None, CertificateTrust.CreateCallback(Account), Credential(), ct);
+
+    public async Task<ForwardingRuleSet> GetForwardingRulesAsync(CancellationToken ct = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(SieveTimeout);
+        await using var sieve = await ConnectSieveAsync(timeout.Token).ConfigureAwait(false);
+        var (_, active) = await sieve.ListScriptsAsync(timeout.Token).ConfigureAwait(false);
+        var script = active != null ? await sieve.GetScriptAsync(active, timeout.Token).ConfigureAwait(false) : null;
+        var extensions = SieveRules.Extensions.Parse(sieve.Capabilities.GetValueOrDefault("SIEVE"));
+        return new ForwardingRuleSet
+        {
+            Rules = SieveRules.Parse(script),
+            // Sieve has only "redirect": the original message goes on unchanged, from its sender.
+            SupportedModes = [ForwardingMode.Redirect],
+            SupportsBodyConditions = extensions.Has("body"),
+            Note = SieveRules.HasOtherContent(script)
+                ? $"На сервере есть и другие фильтры (скрипт «{active}»). Они продолжают работать, программа их не изменяет."
+                : "",
+        };
+    }
+
+    public async Task SaveForwardingRulesAsync(IReadOnlyList<ForwardingRule> rules, bool replaceOutlookRules, CancellationToken ct = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(SieveTimeout);
+        await using var sieve = await ConnectSieveAsync(timeout.Token).ConfigureAwait(false);
+        var (names, active) = await sieve.ListScriptsAsync(timeout.Token).ConfigureAwait(false);
+        // Rules go into the active script (alongside filters made elsewhere), or into our own script.
+        var name = active ?? SieveScriptName;
+        var script = active != null || names.Contains(SieveScriptName)
+            ? await sieve.GetScriptAsync(name, timeout.Token).ConfigureAwait(false)
+            : null;
+        if (active == null && rules.Count == 0) return;
+
+        var stored = rules.Select(r =>
+        {
+            var copy = r.Clone();
+            if (copy.Id.Length == 0) copy.Id = Guid.NewGuid().ToString("N")[..12];
+            copy.Mode = ForwardingMode.Redirect;
+            return copy;
+        }).ToList();
+        var extensions = SieveRules.Extensions.Parse(sieve.Capabilities.GetValueOrDefault("SIEVE"));
+        var updated = SieveRules.Apply(script, stored, extensions);
+        if (active != null && updated == script) return;
+        await sieve.PutScriptAsync(name, updated, timeout.Token).ConfigureAwait(false);
+        if (active == null) await sieve.SetActiveAsync(name, timeout.Token).ConfigureAwait(false);
+    }
 
     public void Dispose()
     {

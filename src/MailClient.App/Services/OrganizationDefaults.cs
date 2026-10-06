@@ -13,7 +13,9 @@ namespace MailClient.App.Services;
 /// <remarks>
 /// Supported values: EwsUrl, Domain, EmailDomain, AuthMethod (Password|IntegratedWindows),
 /// ServerVersion (Exchange2010_SP2|Exchange2013|Exchange2013_SP1|Exchange2016),
-/// TrustedRootCertificateFile (path to .cer/.crt/.pem), LockServerSettings (1 = users cannot change EWS URL).
+/// TrustedRootCertificateFile (path to .cer/.crt/.pem), LockServerSettings (1 = users cannot change EWS URL),
+/// DisableForwardingRules (1 = users cannot create mail forwarding rules). Administrative templates for these
+/// policies: deploy\admx.
 /// </remarks>
 public sealed class OrganizationDefaults
 {
@@ -32,6 +34,13 @@ public sealed class OrganizationDefaults
     public int ImapPort { get; set; }
     public string SmtpHost { get; set; } = "";
     public int SmtpPort { get; set; }
+    /// <summary>Hides the forwarding rules window (data leak prevention; enforce it on the server too).</summary>
+    public bool DisableForwardingRules { get; set; }
+
+    private static readonly Lazy<OrganizationDefaults> CurrentLazy = new(Load);
+
+    /// <summary>The defaults and policies in effect, read once per run.</summary>
+    public static OrganizationDefaults Current => CurrentLazy.Value;
 
     private const string PolicyKey = @"SOFTWARE\Policies\MailClient";
 
@@ -67,6 +76,7 @@ public sealed class OrganizationDefaults
                 if (key.GetValue("ImapPort") is int imapPort) d.ImapPort = imapPort;
                 d.SmtpHost = key.GetValue("SmtpHost") as string ?? d.SmtpHost;
                 if (key.GetValue("SmtpPort") is int smtpPort) d.SmtpPort = smtpPort;
+                if (key.GetValue("DisableForwardingRules") is int noRules) d.DisableForwardingRules = noRules != 0;
             }
             catch (Exception ex)
             {

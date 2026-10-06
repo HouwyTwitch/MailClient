@@ -162,6 +162,8 @@ public sealed class LocalCacheTests : IDisposable
         Assert.Single(cache.GetMessages("F", 0, 10, "100%"));
 
         cache.SetReadState(new[] { "1" }, true);
+        Assert.Equal((0, 0), cache.RefreshFolderCounts("F")); // never synchronized: keeps the server's counters
+        cache.SetSyncState("F", "S1");
         Assert.Equal((2, 0), cache.RefreshFolderCounts("F"));
         cache.DeleteMessages(new[] { "1" });
         Assert.Equal(1, cache.CountMessages("F"));
@@ -180,6 +182,50 @@ public sealed class LocalCacheTests : IDisposable
         Assert.Equal("S1", cache.GetSyncState("A"));
         Assert.Equal(0, cache.CountMessages("B"));
         Assert.Equal("A2", cache.GetFolders().Single().DisplayName);
+    }
+
+    [Fact]
+    public void Synchronized_folder_counts_its_cached_messages_not_the_server_snapshot()
+    {
+        var cache = new LocalCache(_path);
+        cache.ReplaceFolders(new[]
+        {
+            new MailFolder { Id = "Inbox", DisplayName = "Входящие", UnreadCount = 5, TotalCount = 9 },
+            new MailFolder { Id = "Other", DisplayName = "Прочее", UnreadCount = 3, TotalCount = 3 },
+        });
+        cache.SetSyncState("Inbox", "S1");
+        cache.UpsertMessages(new[]
+        {
+            new MessageSummary { Id = "1", FolderId = "Inbox", IsRead = true },
+            new MessageSummary { Id = "2", FolderId = "Inbox", IsRead = false },
+        });
+        cache.SetReadState(new[] { "2" }, true); // "mark all as read" in the client
+
+        // The server still reports 5 unread (items the list never shows, or the change is still on its way).
+        var outOfStep = cache.ReplaceFolders(new[]
+        {
+            new MailFolder { Id = "Inbox", DisplayName = "Входящие", UnreadCount = 5, TotalCount = 9 },
+            new MailFolder { Id = "Other", DisplayName = "Прочее", UnreadCount = 4, TotalCount = 4 },
+        });
+
+        var folders = cache.GetFolders().ToDictionary(f => f.Id);
+        Assert.Equal(0, folders["Inbox"].UnreadCount);
+        Assert.Equal(2, folders["Inbox"].TotalCount);
+        Assert.Equal(4, folders["Other"].UnreadCount); // never opened: the server's counter
+        Assert.Equal(["Inbox"], outOfStep);             // synchronized next, to pick up real changes
+    }
+
+    [Fact]
+    public void Renamed_folder_keeps_its_messages_and_state()
+    {
+        var cache = new LocalCache(_path);
+        cache.ReplaceFolders(new[] { new MailFolder { Id = "P", DisplayName = "Проекты" } });
+        cache.SetSyncState("P", "S1");
+
+        cache.RenameFolder("P", "Проекты 2026");
+
+        Assert.Equal("Проекты 2026", cache.GetFolders().Single().DisplayName);
+        Assert.Equal("S1", cache.GetSyncState("P"));
     }
 
     [Fact]

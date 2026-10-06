@@ -41,7 +41,7 @@ public static class SupportBundle
         }
 
         var info = new StringBuilder()
-            .AppendLine(CultureInfo.InvariantCulture, $"Программа: {typeof(SupportBundle).Assembly.GetName().Version}")
+            .AppendLine(CultureInfo.InvariantCulture, $"Программа: {AppInfo.Version}")
             .AppendLine(CultureInfo.InvariantCulture, $"Windows: {Environment.OSVersion.VersionString}, {(Environment.Is64BitOperatingSystem ? "x64" : "x86")}")
             .AppendLine(CultureInfo.InvariantCulture, $".NET: {Environment.Version}")
             .AppendLine(CultureInfo.InvariantCulture, $"Пользователь: {Environment.UserDomainName}\\{Environment.UserName}, компьютер: {Environment.MachineName}")

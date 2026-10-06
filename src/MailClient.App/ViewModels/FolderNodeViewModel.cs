@@ -47,6 +47,14 @@ public sealed partial class FolderNodeViewModel : ObservableObject
         OnPropertyChanged(nameof(Name));
     }
 
+    /// <summary>Shows a new name right after a successful rename on the server.</summary>
+    public void Rename(string name)
+    {
+        Folder = Folder.WithName(name);
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Path));
+    }
+
     public IEnumerable<FolderNodeViewModel> SelfAndDescendants()
     {
         yield return this;

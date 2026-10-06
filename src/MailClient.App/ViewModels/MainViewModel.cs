@@ -53,16 +53,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FolderTitle), nameof(CanModifyFolder), nameof(IsMailFolderSelected), nameof(IsJunkFolder),
-        nameof(SupportsContacts), nameof(SupportsOutOfOffice))]
+        nameof(SupportsContacts), nameof(SupportsOutOfOffice), nameof(SupportsForwardingRules))]
     private FolderNodeViewModel? _selectedFolder;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasSelection))]
+    [NotifyPropertyChangedFor(nameof(HasSelection), nameof(CanRespond))]
     private MessageItemViewModel? _selectedMessage;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasPreview))]
+    [NotifyPropertyChangedFor(nameof(HasPreview), nameof(ShowPreview), nameof(ShowEmptyHint))]
     private MessagePreviewViewModel? _preview;
+
+    /// <summary>Number of selected messages; above one the reading pane shows the bulk actions instead of a message.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsMultiSelection), nameof(MultiSelectionText), nameof(CanRespond), nameof(ShowPreview), nameof(ShowEmptyHint))]
+    private int _selectionCount;
 
     [ObservableProperty] private bool _isPreviewLoading;
     [ObservableProperty] private string _searchText = "";
@@ -74,10 +79,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _windowTitle = "Корпоративная почта";
 
     public bool HasSelection => SelectedMessage != null;
+    public bool IsMultiSelection => SelectionCount > 1;
+    public string MultiSelectionText => "Выбрано " + RuText.Count(SelectionCount, "письмо", "письма", "писем");
+    /// <summary>Reply/forward act on one message.</summary>
+    public bool CanRespond => HasSelection && !IsMultiSelection;
+    public bool ShowPreview => HasPreview && !IsMultiSelection;
+    public bool ShowEmptyHint => !HasPreview && !IsMultiSelection;
 
     private ProviderCapabilities Caps => CurrentSession?.Provider.Capabilities ?? ProviderCapabilities.All;
     public bool SupportsContacts => Caps.HasFlag(ProviderCapabilities.Contacts);
     public bool SupportsOutOfOffice => Caps.HasFlag(ProviderCapabilities.OutOfOffice);
+    public bool SupportsForwardingRules =>
+        Caps.HasFlag(ProviderCapabilities.ForwardingRules) && !OrganizationDefaults.Current.DisableForwardingRules;
     public bool HasPreview => Preview != null;
     public bool HasAccounts => _sessions.Count > 0;
     public string FolderTitle => SelectedFolder?.Name ?? "";
@@ -214,7 +227,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var expanded = new HashSet<string>(Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => n.IsExpanded).Select(n => n.Id));
         bool firstBuild = Roots.Count == 0;
-        var selectedId = SelectedFolder?.Id;
+        var selected = SelectedFolder;
+        var selectedId = selected?.Id;
 
         _restoringSelection = true;
         try
@@ -244,6 +258,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             FolderNodeViewModel? toSelect = null;
             if (selectedId != null) toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Id == selectedId);
+            // A folder whose id changed (IMAP rename): the same account, parent and name.
+            if (toSelect == null && selected is { IsAccountRoot: false })
+                toSelect = Roots.Where(r => r.Session == selected.Session).SelectMany(r => r.SelfAndDescendants())
+                    .FirstOrDefault(n => !n.IsAccountRoot && n.Name == selected.Name && n.Parent?.Id == selected.Parent?.Id);
             if (toSelect == null && (firstBuild || selectedId == null || selectedId.StartsWith("root:", StringComparison.Ordinal)))
                 toSelect = Roots.SelectMany(r => r.SelfAndDescendants()).FirstOrDefault(n => n.Folder.WellKnown == WellKnownFolder.Inbox);
             if (toSelect != null)
@@ -446,10 +464,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             await Task.Delay(120, ct); // debounce fast keyboard navigation
             IsPreviewLoading = true;
-            var preview = await MessagePreviewViewModel.LoadAsync(session, _settings, item.Id, ct);
+            var preview = await MessagePreviewViewModel.LoadAsync(session, _sessions, _settings, item.Id, ct);
             if (ct.IsCancellationRequested) return;
             Preview = preview;
-            if (!item.IsRead && _settings.MarkAsReadDelaySeconds >= 0)
+            if (!item.IsRead && _settings.MarkAsReadDelaySeconds >= 0 && !IsMultiSelection)
             {
                 _markReadTimer.Interval = TimeSpan.FromSeconds(Math.Max(0.05, _settings.MarkAsReadDelaySeconds));
                 _markReadTimer.Start();
@@ -468,6 +486,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             if (!ct.IsCancellationRequested) IsPreviewLoading = false;
         }
+    }
+
+    /// <summary>Called by the view whenever the list selection changes.</summary>
+    public void SetSelection(IEnumerable<MessageItemViewModel> items)
+    {
+        SelectedMessages.Clear();
+        SelectedMessages.AddRange(items);
+        SelectionCount = SelectedMessages.Count;
+        // Selecting a range must not mark its first message read.
+        if (IsMultiSelection) _markReadTimer.Stop();
     }
 
     private async Task MarkCurrentAsReadAsync()
@@ -503,10 +531,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (changed.Count == 0) return;
         foreach (var i in changed) i.IsRead = read;
         folder.Unread = Math.Max(0, folder.Unread + (read ? -changed.Count : changed.Count));
-        UpdateUnreadTotals();
         folder.Session.Cache.SetReadState(changed.Select(i => i.Id), read);
+        SettleUnread(folder);
+        UpdateUnreadTotals();
         await RunAsync("Не удалось изменить состояние «прочитано»",
             () => folder.Session.Provider.SetReadStateAsync(changed.Select(i => i.Id), read));
+    }
+
+    /// <summary>
+    /// A synchronized folder's counter is the number of unread messages in its cache (what the list shows);
+    /// storing it keeps a later folder refresh from bringing back an outdated server counter.
+    /// </summary>
+    private static void SettleUnread(FolderNodeViewModel folder)
+    {
+        if (folder.Session.Cache.GetSyncState(folder.Id) == null) return;
+        folder.Unread = folder.Session.Cache.RefreshFolderCounts(folder.Id).unread;
     }
 
     [RelayCommand] private Task MarkRead() => SetReadAsync(Targets.ToList(), true);
@@ -530,6 +569,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             }
             await Task.Run(() => folder.Session.Cache.SetReadState(UnreadIds(), true));
             folder.Unread = 0;
+            SettleUnread(folder);
             foreach (var m in Messages) m.IsRead = true;
             UpdateUnreadTotals();
         });
@@ -569,6 +609,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             folder.Unread = Math.Max(0, folder.Unread - removedUnread);
             folder.Session.Cache.DeleteMessages(items.Select(i => i.Id));
+            SettleUnread(folder);
         }
         UpdateUnreadTotals();
         if (Messages.Count > 0 && index >= 0) SelectedMessage = Messages[Math.Min(index, Messages.Count - 1)];
@@ -650,7 +691,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
         if (copy)
         {
-            await RunAsync("Не удалось скопировать письма", () => folder.Session.Provider.CopyItemsAsync(items.Select(i => i.Id), target.Id));
+            await RunAsync("Не удалось скопировать письма", async () =>
+            {
+                await folder.Session.Provider.CopyItemsAsync(items.Select(i => i.Id), target.Id);
+                target.Unread += items.Count(i => !i.IsRead);
+                StatusText = $"Скопировано: {RuText.Count(items.Count, "письмо", "письма", "писем")} → «{target.Name}»";
+            });
             return;
         }
         await MoveItemsToAsync(items, folder, target.Id);
@@ -703,7 +749,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var session = SelectedFolder?.Session;
         var item = SelectedMessage;
-        if (session == null || item == null) return;
+        if (session == null || item == null || IsMultiSelection) return;
         try
         {
             var message = Preview?.Message.Id == item.Id ? Preview.Message : await session.Sync.GetMessageAsync(item.Id);
@@ -733,7 +779,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 WindowFactory.OpenCompose(await ComposeViewModel.FromDraftAsync(_sessions, folder.Session, item.Id), _settings);
                 return;
             }
-            var preview = await MessagePreviewViewModel.LoadAsync(folder.Session, _settings, item.Id, CancellationToken.None);
+            var preview = await MessagePreviewViewModel.LoadAsync(folder.Session, _sessions, _settings, item.Id, CancellationToken.None);
             WindowFactory.OpenMessage(preview, this);
         }
         catch (Exception ex)
@@ -831,11 +877,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         var folder = SelectedFolder;
         if (folder is not { CanModify: true }) return;
-        var name = WindowFactory.Prompt("Переименование папки", "Новое имя папки:", folder.Name);
+        var name = WindowFactory.Prompt("Переименование папки", "Новое имя папки:", folder.Name)?.Trim();
         if (string.IsNullOrWhiteSpace(name) || name == folder.Name) return;
         await RunAsync("Не удалось переименовать папку", async () =>
         {
-            await folder.Session.Provider.RenameFolderAsync(folder.Id, name.Trim());
+            await folder.Session.Provider.RenameFolderAsync(folder.Id, name);
+            // Shown at once; the refresh below brings the server's view (on IMAP the folder also gets a new id,
+            // and the tree keeps it selected by its new name).
+            folder.Rename(name);
+            folder.Session.Cache.RenameFolder(folder.Id, name);
+            OnPropertyChanged(nameof(FolderTitle));
+            UpdateTitle();
+            StatusText = $"Папка переименована: «{name}»";
             await folder.Session.Sync.SyncFoldersAsync();
         });
     }
@@ -975,6 +1028,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
         WindowFactory.OutOfOffice(s);
+    }
+
+    [RelayCommand]
+    private void OpenForwardingRules()
+    {
+        if (CurrentSession is not { } s) return;
+        if (OrganizationDefaults.Current.DisableForwardingRules)
+        {
+            Dialogs.Info("Правила пересылки отключены администратором организации.");
+            return;
+        }
+        if (!SupportsForwardingRules)
+        {
+            Dialogs.Info("Для этой учётной записи пересылка настраивается в веб-интерфейсе почты.");
+            return;
+        }
+        WindowFactory.ForwardingRules(s);
     }
 
     [RelayCommand]

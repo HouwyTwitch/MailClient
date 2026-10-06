@@ -9,7 +9,7 @@ public partial class AboutWindow : Window
     public AboutWindow()
     {
         InitializeComponent();
-        VersionText.Text = $"Версия {typeof(AboutWindow).Assembly.GetName().Version}";
+        VersionText.Text = $"Версия {AppInfo.Version}";
         PathsText.Text = $"Настройки: {AppPaths.Roaming}\nКэш и журналы: {AppPaths.Local}";
         NoticesButton.IsEnabled = File.Exists(NoticesFile);
     }

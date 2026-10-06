@@ -46,6 +46,9 @@
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE709;" ToolTip="Автоответ (нет на месте)" HorizontalAlignment="Center"
                             Visibility="{Binding SupportsOutOfOffice, Converter={StaticResource BoolToVis}}"
                             Command="{Binding OpenOutOfOfficeCommand}"/>
+                    <Button Style="{StaticResource ToolButton}" Tag="&#xE89C;" ToolTip="Правила пересылки" HorizontalAlignment="Center"
+                            Visibility="{Binding SupportsForwardingRules, Converter={StaticResource BoolToVis}}"
+                            Command="{Binding OpenForwardingRulesCommand}"/>
                     <Button Style="{StaticResource ToolButton}" Tag="&#xE713;" ToolTip="Параметры" HorizontalAlignment="Center" Click="SettingsButton_Click">
                         <Button.ContextMenu>
                             <ContextMenu>
@@ -56,6 +59,7 @@
                                 <MenuItem Header="Удалить учётную запись…" Command="{Binding RemoveCurrentAccountCommand}"/>
                                 <Separator/>
                                 <MenuItem Header="Автоответ (нет на месте)…" Command="{Binding OpenOutOfOfficeCommand}"/>
+                                <MenuItem Header="Правила пересылки…" Command="{Binding OpenForwardingRulesCommand}"/>
                                 <MenuItem Header="Открыть папку журналов" Command="{Binding OpenLogsCommand}"/>
                                 <MenuItem Header="Сохранить отчёт для техподдержки…" Command="{Binding SaveSupportBundleCommand}"/>
                                 <MenuItem Header="О программе" Command="{Binding ShowAboutCommand}"/>
@@ -179,6 +183,7 @@
                     <ListBox x:Name="MessageList" AutomationProperties.Name="Список писем" ItemsSource="{Binding Messages}" SelectedItem="{Binding SelectedMessage}"
                              SelectionMode="Extended" SelectionChanged="MessageList_SelectionChanged"
                              PreviewMouseLeftButtonDown="MessageList_PreviewMouseLeftButtonDown"
+                             PreviewMouseLeftButtonUp="MessageList_PreviewMouseLeftButtonUp"
                              PreviewMouseMove="MessageList_PreviewMouseMove"
                              MouseDoubleClick="MessageList_MouseDoubleClick"
                              ScrollViewer.ScrollChanged="MessageList_ScrollChanged"
@@ -192,9 +197,9 @@
                             <ContextMenu>
                                 <MenuItem Header="Открыть" Command="{Binding OpenSelectedCommand}" InputGestureText="Enter"/>
                                 <Separator/>
-                                <MenuItem Header="Ответить" Command="{Binding ReplyCommand}" InputGestureText="Ctrl+R"/>
-                                <MenuItem Header="Ответить всем" Command="{Binding ReplyAllCommand}" InputGestureText="Ctrl+Shift+R"/>
-                                <MenuItem Header="Переслать" Command="{Binding ForwardCommand}" InputGestureText="Ctrl+F"/>
+                                <MenuItem Header="Ответить" Command="{Binding ReplyCommand}" IsEnabled="{Binding CanRespond}" InputGestureText="Ctrl+R"/>
+                                <MenuItem Header="Ответить всем" Command="{Binding ReplyAllCommand}" IsEnabled="{Binding CanRespond}" InputGestureText="Ctrl+Shift+R"/>
+                                <MenuItem Header="Переслать" Command="{Binding ForwardCommand}" IsEnabled="{Binding CanRespond}" InputGestureText="Ctrl+F"/>
                                 <Separator/>
                                 <MenuItem Header="Отметить как прочитанное" Command="{Binding MarkReadCommand}" InputGestureText="Ctrl+Q"/>
                                 <MenuItem Header="Отметить как непрочитанное" Command="{Binding MarkUnreadCommand}" InputGestureText="Ctrl+U"/>
@@ -271,9 +276,9 @@
                 <!-- command bar -->
                 <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="8,6">
                     <WrapPanel>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8CA;" Content="Ответить" IsEnabled="{Binding HasSelection}" Command="{Binding ReplyCommand}" ToolTip="Ответить (Ctrl+R)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8C2;" Content="Ответить всем" IsEnabled="{Binding HasSelection}" Command="{Binding ReplyAllCommand}" ToolTip="Ответить всем (Ctrl+Shift+R)"/>
-                        <Button Style="{StaticResource ToolButton}" Tag="&#xE89C;" Content="Переслать" IsEnabled="{Binding HasSelection}" Command="{Binding ForwardCommand}" ToolTip="Переслать (Ctrl+F)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8CA;" Content="Ответить" IsEnabled="{Binding CanRespond}" Command="{Binding ReplyCommand}" ToolTip="Ответить (Ctrl+R)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE8C2;" Content="Ответить всем" IsEnabled="{Binding CanRespond}" Command="{Binding ReplyAllCommand}" ToolTip="Ответить всем (Ctrl+Shift+R)"/>
+                        <Button Style="{StaticResource ToolButton}" Tag="&#xE89C;" Content="Переслать" IsEnabled="{Binding CanRespond}" Command="{Binding ForwardCommand}" ToolTip="Переслать (Ctrl+F)"/>
                         <Rectangle Width="1" Height="20" Margin="6,0" Fill="{DynamicResource Brush.Border}"/>
                         <Button Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="Удалить" IsEnabled="{Binding HasSelection}" Command="{Binding DeleteCommand}" ToolTip="Удалить (Delete)"/>
                         <Button Style="{StaticResource ToolButton}" Tag="&#xE8DE;" Content="Переместить" IsEnabled="{Binding HasSelection}" Command="{Binding MoveToCommand}" ToolTip="Переместить в папку"/>
@@ -294,9 +299,25 @@
                 <Grid>
                     <TextBlock Text="Выберите письмо для просмотра" Style="{StaticResource Caption}" FontSize="14"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                               Visibility="{Binding HasPreview, Converter={StaticResource InvBoolToVis}}"/>
+                               Visibility="{Binding ShowEmptyHint, Converter={StaticResource BoolToVis}}"/>
                     <local:MessagePreviewView x:Name="PreviewView" DataContext="{Binding Preview}"
-                                              Visibility="{Binding DataContext.HasPreview, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                                              Visibility="{Binding DataContext.ShowPreview, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                    <!-- several messages selected (Ctrl/Shift+click, Ctrl+A): actions for all of them -->
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Margin="24"
+                                Visibility="{Binding IsMultiSelection, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE762;" FontSize="40" HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource Brush.Accent}"/>
+                        <TextBlock Text="{Binding MultiSelectionText}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+                        <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,6,0,16"
+                                   Text="Перетащите их на папку слева, чтобы переместить, или с нажатой клавишей Ctrl — чтобы скопировать."/>
+                        <WrapPanel HorizontalAlignment="Center">
+                            <Button Style="{StaticResource ToolButton}" Tag="&#xE8DE;" Content="Переместить…" Command="{Binding MoveToCommand}"/>
+                            <Button Style="{StaticResource ToolButton}" Tag="&#xE8C8;" Content="Копировать…" Command="{Binding CopyToCommand}"/>
+                            <Button Style="{StaticResource ToolButton}" Tag="&#xE8C3;" Content="Прочитаны" Command="{Binding MarkReadCommand}"
+                                    ToolTip="Отметить как прочитанные (Ctrl+Q)"/>
+                            <Button Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="Удалить" Command="{Binding DeleteCommand}" ToolTip="Удалить (Delete)"/>
+                        </WrapPanel>
+                    </StackPanel>
                 </Grid>
             </DockPanel>
         </Grid>
