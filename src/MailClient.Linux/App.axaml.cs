@@ -51,6 +51,7 @@ public sealed class App : Application
                 // CI: the window must open and render; then leave cleanly.
                 window.Opened += async (_, _) =>
                 {
+                    MailClient.App.Services.Log.Info("diag: window opened");
                     await Task.Delay(TimeSpan.FromSeconds(3));
                     Console.WriteLine($"smoke-test: окно открыто, WebKit: {(Controls.WebKit.IsAvailable ? "есть" : "нет")}");
                     desktop.Shutdown(0);

@@ -103,7 +103,12 @@ public static class WebKitProbe
             lifetime.Startup += (_, _) =>
             {
                 var web = new NativeWebView();
-                var window = new Window { Width = 300, Height = 200, Content = web, ShowInTaskbar = false };
+                var mode = Environment.GetEnvironmentVariable("MAILCLIENT_PROBE_MODE");
+                Control content = web;
+                if (mode == "hidden") content = new Panel { IsVisible = false, Children = { web } };
+                if (mode == "nonav") web.NavigationStarted += (_, e) => e.Cancel = false;
+                var window = new Window { Width = 300, Height = 200, Content = content, ShowInTaskbar = false };
+                if (mode == "hidden") _ = Task.Delay(1500).ContinueWith(_ => Avalonia.Threading.Dispatcher.UIThread.Post(() => { Console.WriteLine(OkMarker); lifetime.Shutdown(0); }));
                 web.NavigationCompleted += async (_, e) =>
                 {
                     await Task.Delay(1500); // let the page render (most crashes happen while compositing)

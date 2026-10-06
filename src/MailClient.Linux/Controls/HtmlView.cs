@@ -23,6 +23,8 @@ public sealed class HtmlView : ContentControl
         if (WebKit.IsAvailable)
         {
             _web = new NativeWebView();
+            Log.Info("diag: HtmlView created");
+            _web.AttachedToVisualTree += (_, _) => Log.Info($"diag: web attached, visible={IsEffectivelyVisible}, bounds={Bounds}");
             _web.NavigationStarted += (_, e) =>
             {
                 if (_allowNext)
@@ -57,6 +59,7 @@ public sealed class HtmlView : ContentControl
         if (_web != null)
         {
             _allowNext = true;
+            Log.Info($"diag: navigate {html.Length} chars, visible={IsEffectivelyVisible}, bounds={Bounds}");
             _web.NavigateToString(html, new Uri("about:blank"));
         }
         else if (_text != null)

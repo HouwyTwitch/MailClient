@@ -97,6 +97,7 @@ jobs:
           # some containers without a GPU), it starts with plain-text letters instead of failing.
           echo "== WebKitGTK check alone"
           (xvfb-run -a mailclient --probe-webkit 2>&1 | tail -5; echo "exit ${PIPESTATUS[0]}") || true
+          for m in hidden nonav; do (MAILCLIENT_PROBE_MODE=$m xvfb-run -a mailclient --probe-webkit 2>&1 | tail -3; echo "mode $m exit ${PIPESTATUS[0]}") || true; done
           echo "== normal start"
           status=0
           xvfb-run -a mailclient --smoke-test 2>&1 | tee smoke.txt || status=$?
