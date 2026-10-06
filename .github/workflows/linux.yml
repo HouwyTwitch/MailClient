@@ -82,11 +82,20 @@ jobs:
           fi
           apt-get update
       - name: Install the package (dependencies from the distribution)
-        run: DEBIAN_FRONTEND=noninteractive apt-get install -y ./mailclient_*.deb xvfb xauth
+        run: DEBIAN_FRONTEND=noninteractive apt-get install -y ./mailclient_*.deb xvfb xauth gdb
       - name: Start
         run: |
           mailclient --version
-          xvfb-run -a mailclient --smoke-test | tee smoke.txt
+          dpkg -l | grep -i "webkit2gtk\|libgtk-3-0" | awk '{print $2, $3}' || true
+          echo "== text mode (no WebKitGTK)"
+          MAILCLIENT_NO_WEBVIEW=1 xvfb-run -a mailclient --smoke-test | tee smoke-text.txt
+          grep -q "smoke-test: окно открыто" smoke-text.txt
+          echo "== with WebKitGTK"
+          if ! xvfb-run -a mailclient --smoke-test | tee smoke.txt; then
+            echo "crashed; native backtrace:"
+            xvfb-run -a gdb -batch -ex "handle SIGUSR1 SIGUSR2 SIG34 SIG35 nostop noprint" -ex run -ex "thread apply all bt 15" --args /opt/mailclient/mailclient --smoke-test 2>&1 | tail -150
+            exit 1
+          fi
           grep -q "smoke-test: окно открыто" smoke.txt
 
   release:
