@@ -6,11 +6,21 @@ public static class AppPaths
 {
     public const string AppFolderName = "MailClient";
 
-    /// <summary>%APPDATA%\MailClient — settings (roams with the user profile).</summary>
-    public static string Roaming { get; } = Ensure(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppFolderName));
+    /// <summary>%APPDATA%\MailClient (Linux: ~/.config/MailClient) — settings (roams with the user profile).</summary>
+    public static string Roaming { get; } = Ensure(Path.Combine(Folder(Environment.SpecialFolder.ApplicationData), AppFolderName));
 
-    /// <summary>%LOCALAPPDATA%\MailClient — caches, logs, browser data.</summary>
-    public static string Local { get; } = Ensure(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppFolderName));
+    /// <summary>%LOCALAPPDATA%\MailClient (Linux: ~/.local/share/MailClient) — caches, logs, browser data.</summary>
+    public static string Local { get; } = Ensure(Path.Combine(Folder(Environment.SpecialFolder.LocalApplicationData), AppFolderName));
+
+    /// <summary>
+    /// A user folder, created when missing: .NET returns an empty path for a folder that does not exist yet
+    /// (a new Linux user without ~/.local/share), and the files would end up in the current directory.
+    /// </summary>
+    private static string Folder(Environment.SpecialFolder folder)
+    {
+        var path = Environment.GetFolderPath(folder, Environment.SpecialFolderOption.Create);
+        return Path.IsPathRooted(path) ? path : Path.Combine(Path.GetTempPath(), Environment.UserName);
+    }
 
     public static string SettingsFile => Path.Combine(Roaming, "settings.json");
     public static string Secrets => Ensure(Path.Combine(Roaming, "secrets"));

@@ -95,8 +95,8 @@ public sealed class MessageBodyView : UserControl, IDisposable
 
     private static void OpenExternal(string uri)
     {
-        if (Uri.TryCreate(uri, UriKind.Absolute, out var u) && WindowsIntegration.IsSafeExternalLink(u))
-            WindowsIntegration.ShellOpen(u.AbsoluteUri);
+        if (Uri.TryCreate(uri, UriKind.Absolute, out var u) && DesktopIntegration.IsSafeExternalLink(u))
+            DesktopIntegration.ShellOpen(u.AbsoluteUri);
     }
 
     private async void Render()

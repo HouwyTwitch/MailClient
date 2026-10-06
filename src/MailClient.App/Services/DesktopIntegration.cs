@@ -3,12 +3,13 @@ using Microsoft.Win32;
 
 namespace MailClient.App.Services;
 
-public static class WindowsIntegration
+/// <summary>Windows shell: default programs, autostart, clipboard. The Linux build has its own implementation.</summary>
+public static class DesktopIntegration
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValue = "MailClient";
 
-    public static void SetStartWithWindows(bool enabled)
+    public static void SetAutostart(bool enabled)
     {
         try
         {
@@ -32,6 +33,19 @@ public static class WindowsIntegration
         catch (Exception ex)
         {
             Dialogs.Error(ex, "Не удалось открыть");
+        }
+    }
+
+    /// <summary>Puts text on the clipboard; the clipboard can be locked by another program for a moment.</summary>
+    public static void CopyText(string text)
+    {
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            Dialogs.Error(ex, "Не удалось скопировать в буфер обмена");
         }
     }
 

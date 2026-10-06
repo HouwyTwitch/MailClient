@@ -1,0 +1,100 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MailClient.Linux.Views.AccountWindow"
+        Title="Учётная запись" Width="560" Height="720" MinWidth="460" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Padding="20,12" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="TestButton" Content="Проверить" Click="Test_Click"/>
+                    <Button x:Name="SaveButton" Content="Сохранить" Classes="accent" IsDefault="True" Click="Save_Click"/>
+                    <Button Content="Отмена" IsCancel="True" Click="Cancel_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusText" Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+            </DockPanel>
+        </Border>
+        <ScrollViewer>
+            <StackPanel Margin="24,16" Spacing="6">
+                <TextBlock Text="Тип учётной записи" FontWeight="SemiBold"/>
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <RadioButton x:Name="ExchangeRadio" Content="Microsoft Exchange" GroupName="protocol" IsCheckedChanged="Protocol_Changed"/>
+                    <RadioButton x:Name="ImapRadio" Content="IMAP / SMTP" GroupName="protocol" IsCheckedChanged="Protocol_Changed"/>
+                </StackPanel>
+
+                <TextBlock Text="Адрес электронной почты" Margin="0,10,0,0"/>
+                <TextBox x:Name="EmailBox" PlaceholderText="ivanov@company.ru"/>
+                <TextBlock Text="Имя (как его увидят получатели)"/>
+                <TextBox x:Name="DisplayNameBox" PlaceholderText="Иванов Иван"/>
+                <TextBlock Text="Имя пользователя (если отличается от адреса)"/>
+                <TextBox x:Name="UserBox" PlaceholderText="ivanov или CORP\ivanov"/>
+                <TextBlock Text="Пароль"/>
+                <TextBox x:Name="PasswordBox" PasswordChar="●" RevealPassword="False"/>
+                <TextBlock x:Name="PasswordHint" Classes="caption" TextWrapping="Wrap"
+                           Text="Для Exchange пароль можно не вводить, если компьютер в домене и выполнен вход по Kerberos (билет kinit)."/>
+
+                <StackPanel x:Name="ExchangePanel" Spacing="6">
+                    <TextBlock Text="Сервер Exchange" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                    <TextBlock Text="Адрес EWS"/>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Найти автоматически" Margin="8,0,0,0" Click="Discover_Click"/>
+                        <TextBox x:Name="EwsBox" PlaceholderText="https://mail.company.ru/EWS/Exchange.asmx"/>
+                    </DockPanel>
+                    <TextBlock Text="Домен (необязательно)"/>
+                    <TextBox x:Name="DomainBox" PlaceholderText="CORP"/>
+                    <TextBlock Text="Способ проверки подлинности"/>
+                    <ComboBox x:Name="AuthCombo" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Content="NTLM (обычно для Exchange)" Tag="Ntlm"/>
+                        <ComboBoxItem Content="Kerberos (Negotiate)" Tag="Negotiate"/>
+                        <ComboBoxItem Content="Basic (только по HTTPS)" Tag="Basic"/>
+                        <ComboBoxItem Content="Автоматически" Tag="Auto"/>
+                    </ComboBox>
+                    <TextBlock Text="Версия сервера"/>
+                    <ComboBox x:Name="VersionCombo" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Content="Exchange 2016 / 2019 / Subscription Edition" Tag="Exchange2016"/>
+                        <ComboBoxItem Content="Exchange 2013 SP1" Tag="Exchange2013_SP1"/>
+                        <ComboBoxItem Content="Exchange 2013" Tag="Exchange2013"/>
+                        <ComboBoxItem Content="Exchange 2010 SP2" Tag="Exchange2010_SP2"/>
+                    </ComboBox>
+                </StackPanel>
+
+                <StackPanel x:Name="ImapPanel" Spacing="6">
+                    <DockPanel Margin="0,10,0,0">
+                        <Button DockPanel.Dock="Right" Content="Заполнить по адресу" Click="Preset_Click"/>
+                        <TextBlock Text="Серверы IMAP и SMTP" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <Grid ColumnDefinitions="*,8,90,8,150" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <TextBlock Text="Входящая почта (IMAP)"/>
+                        <TextBox x:Name="ImapHostBox" Grid.Row="1" PlaceholderText="imap.company.ru"/>
+                        <TextBox x:Name="ImapPortBox" Grid.Row="1" Grid.Column="2" PlaceholderText="993"/>
+                        <ComboBox x:Name="ImapSecurityCombo" Grid.Row="1" Grid.Column="4" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="SSL/TLS" Tag="SslOnConnect"/>
+                            <ComboBoxItem Content="STARTTLS" Tag="StartTls"/>
+                            <ComboBoxItem Content="Без шифрования" Tag="None"/>
+                        </ComboBox>
+                        <TextBlock Grid.Row="2" Text="Исходящая почта (SMTP)" Margin="0,6,0,0"/>
+                        <TextBox x:Name="SmtpHostBox" Grid.Row="3" PlaceholderText="smtp.company.ru"/>
+                        <TextBox x:Name="SmtpPortBox" Grid.Row="3" Grid.Column="2" PlaceholderText="465"/>
+                        <ComboBox x:Name="SmtpSecurityCombo" Grid.Row="3" Grid.Column="4" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="SSL/TLS" Tag="SslOnConnect"/>
+                            <ComboBoxItem Content="STARTTLS" Tag="StartTls"/>
+                            <ComboBoxItem Content="Без шифрования" Tag="None"/>
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+
+                <TextBlock Text="Безопасность" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                <TextBlock Classes="caption" TextWrapping="Wrap"
+                           Text="Если сертификат сервера выдан внутренним удостоверяющим центром или «Russian Trusted Root CA», укажите корневой сертификат — он будет применяться только к серверу этой учётной записи."/>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Убрать" Margin="8,0,0,0" Click="ClearCert_Click"/>
+                    <Button DockPanel.Dock="Right" Content="Выбрать файл…" Margin="8,0,0,0" Click="ChooseCert_Click"/>
+                    <TextBlock x:Name="CertText" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </DockPanel>
+
+                <TextBlock Text="Подпись" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                <TextBox x:Name="SignatureBox" AcceptsReturn="True" TextWrapping="Wrap" Height="80"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

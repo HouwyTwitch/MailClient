@@ -28,6 +28,8 @@
 
   function post(message) {
     if (window.chrome && chrome.webview) chrome.webview.postMessage(message);
+    // Avalonia NativeWebView (WebKitGTK on Linux) injects invokeCSharpAction.
+    else if (typeof invokeCSharpAction === 'function') invokeCSharpAction(message);
   }
   function changed() { post({ type: 'changed' }); scheduleState(); }
 

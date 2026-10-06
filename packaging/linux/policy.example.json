@@ -1,0 +1,10 @@
+{
+  "EwsUrl": "https://mail.company.ru/EWS/Exchange.asmx",
+  "Domain": "CORP",
+  "EmailDomain": "company.ru",
+  "AuthMethod": "Password",
+  "ServerVersion": "Exchange2016",
+  "TrustedRootCertificateFile": "/usr/local/share/ca-certificates/company-root.crt",
+  "LockServerSettings": true,
+  "DisableForwardingRules": false
+}

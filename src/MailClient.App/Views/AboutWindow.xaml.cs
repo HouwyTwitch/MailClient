@@ -16,5 +16,5 @@ public partial class AboutWindow : Window
 
     private static string NoticesFile => Path.Combine(AppContext.BaseDirectory, "THIRD-PARTY-NOTICES.txt");
 
-    private void Notices_Click(object sender, RoutedEventArgs e) => WindowsIntegration.ShellOpen(NoticesFile);
+    private void Notices_Click(object sender, RoutedEventArgs e) => DesktopIntegration.ShellOpen(NoticesFile);
 }

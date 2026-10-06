@@ -301,7 +301,7 @@ public partial class ComposeWindow : Window
     {
         var url = WindowFactory.Prompt("Вставка ссылки", "Адрес (URL):", "https://");
         if (string.IsNullOrWhiteSpace(url) || url == "https://") return;
-        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) || !WindowsIntegration.IsSafeExternalLink(uri))
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) || !DesktopIntegration.IsSafeExternalLink(uri))
         {
             Dialogs.Error("Допускаются только ссылки http://, https:// и mailto:.");
             return;

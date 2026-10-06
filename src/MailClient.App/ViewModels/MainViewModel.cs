@@ -1053,13 +1053,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (WindowFactory.EditSettings(_settings) != true) return;
         SettingsStore.Save(_settings);
         ThemeService.Apply(_settings.Theme);
-        WindowsIntegration.SetStartWithWindows(_settings.StartWithWindows);
+        DesktopIntegration.SetAutostart(_settings.StartWithWindows);
         if (Preview != null && SelectedMessage != null) OnSelectedMessageChanged(SelectedMessage);
     }
 
     [RelayCommand]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822", Justification = "Commands are generated for instance methods")]
-    private void OpenLogs() => WindowsIntegration.ShellOpen(AppPaths.Logs);
+    private void OpenLogs() => DesktopIntegration.ShellOpen(AppPaths.Logs);
 
     /// <summary>ZIP with logs, settings without secrets and system data for the IT department.</summary>
     [RelayCommand]

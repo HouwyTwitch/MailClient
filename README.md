@@ -197,6 +197,7 @@ windows-1251, KOI8-R, CP866 (DOS), ISO-8859-5, Mac. Для Exchange тема и 
 - Устанавливать .NET не нужно: программа поставляется самодостаточным файлом.
 
 Перенос на Astra Linux: исследование, варианты и план — [`docs/astra-linux.md`](docs/astra-linux.md).
+Версия для Linux (Astra Linux SE 1.7/1.8, Debian, Ubuntu): пакет `.deb` из CI, установка и настройка — [`docs/linux.md`](docs/linux.md).
 
 ## Установка и развёртывание
 
@@ -270,6 +271,8 @@ src/
                         автоответы, адресная книга; Autodiscover; NTLM/Kerberos/SSO; доверие к УЦ
   MailClient.Imap       IMAP + SMTP на основе MailKit: инкрементальная синхронизация (UID/CONDSTORE),
                         ответы с цитатой и заголовками In-Reply-To, имена вложений по RFC 2047
+  MailClient.Linux      приложение для Linux (Avalonia, WebKitGTK): общие с WPF модели представления и сервисы,
+                        свои реализации диалогов, хранения паролей, политик и интеграции с рабочим столом
   MailClient.App        приложение WPF (.NET 10, MVVM): интерфейс, WebView2, хранение секретов (DPAPI),
                         значок в трее, политики организации
 tests/
