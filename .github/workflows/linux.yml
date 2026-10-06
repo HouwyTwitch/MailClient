@@ -82,21 +82,28 @@ jobs:
           fi
           apt-get update
       - name: Install the package (dependencies from the distribution)
-        run: DEBIAN_FRONTEND=noninteractive apt-get install -y ./mailclient_*.deb xvfb xauth gdb
-      - name: Start
         run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ./mailclient_*.deb xvfb xauth
+          DEBIAN_FRONTEND=noninteractive apt-get install -y gdb || echo "gdb unavailable"
+      - name: Start
+        shell: bash
+        run: |
+          set -o pipefail
           mailclient --version
-          dpkg -l | grep -i "webkit2gtk\|libgtk-3-0" | awk '{print $2, $3}' || true
+          dpkg -l | grep -i "webkit2gtk\|libgtk-3-0\|bubblewrap" | awk '{print $2, $3}' || true
           echo "== text mode (no WebKitGTK)"
           MAILCLIENT_NO_WEBVIEW=1 xvfb-run -a mailclient --smoke-test | tee smoke-text.txt
           grep -q "smoke-test: окно открыто" smoke-text.txt
           echo "== with WebKitGTK"
-          if ! xvfb-run -a mailclient --smoke-test | tee smoke.txt; then
-            echo "crashed; native backtrace:"
-            xvfb-run -a gdb -batch -ex "handle SIGUSR1 SIGUSR2 SIG34 SIG35 nostop noprint" -ex run -ex "thread apply all bt 15" --args /opt/mailclient/mailclient --smoke-test 2>&1 | tail -150
-            exit 1
+          if xvfb-run -a mailclient --smoke-test 2>&1 | tee smoke.txt; then
+            grep -q "smoke-test: окно открыто" smoke.txt
+            exit 0
           fi
-          grep -q "smoke-test: окно открыто" smoke.txt
+          echo "== crashed. Same without the WebKit sandbox:"
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 xvfb-run -a mailclient --smoke-test 2>&1 | tail -20 || true
+          echo "== native backtrace:"
+          command -v gdb && xvfb-run -a gdb -batch -ex "handle SIGUSR1 SIGUSR2 SIG34 SIG35 SIGPIPE nostop noprint" -ex run -ex "bt 40" -ex "info threads" --args /opt/mailclient/mailclient --smoke-test 2>&1 | grep -v "^\[New Thread\|^\[Thread" | tail -120
+          exit 1
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
