@@ -99,10 +99,13 @@ jobs:
             grep -q "smoke-test: окно открыто" smoke.txt
             exit 0
           fi
-          echo "== crashed. Same without the WebKit sandbox:"
-          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 xvfb-run -a mailclient --smoke-test 2>&1 | tail -20 || true
+          echo "== crashed. Variants:"
+          for v in WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GSK_RENDERER=cairo; do
+            if env "$v" xvfb-run -a mailclient --smoke-test 2>&1 | tail -3; then echo "OK with $v"; else echo "CRASH with $v"; fi
+          done
+          if env WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 xvfb-run -a mailclient --smoke-test 2>&1 | tail -3; then echo "OK with dmabuf+compositing off"; else echo "CRASH with dmabuf+compositing off"; fi
           echo "== native backtrace:"
-          command -v gdb && xvfb-run -a gdb -batch -ex "handle SIGUSR1 SIGUSR2 SIG34 SIG35 SIGPIPE nostop noprint" -ex run -ex "bt 40" -ex "info threads" --args /opt/mailclient/mailclient --smoke-test 2>&1 | grep -v "^\[New Thread\|^\[Thread" | tail -120
+          command -v gdb && xvfb-run -a gdb -batch -ex "handle SIGUSR1 SIGUSR2 SIG34 SIG35 SIGPIPE nostop noprint" -ex run -ex "bt 30" -ex 'info symbol $pc' -ex "info sharedlibrary" --args /opt/mailclient/mailclient --smoke-test 2>&1 | grep -v "^\[New Thread\|^\[Thread\|^\[Detaching" | tail -150
           exit 1
 
   release:
