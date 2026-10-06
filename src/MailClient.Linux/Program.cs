@@ -19,6 +19,8 @@ public static class Program
             return 0;
         }
 
+        if (args.Contains(Controls.WebKitProbe.ProbeArgument)) return Controls.WebKitProbe.RunInChild();
+
         CodePages.EnsureRegistered();
         using var instance = SingleInstance.TryAcquire(args);
         if (instance == null)
@@ -28,6 +30,7 @@ public static class Program
         }
 
         Log.Info($"Запуск {AppInfo.Version}, {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+        Controls.WebKitProbe.Apply();
         App.StartupArgs = args;
         App.Instance = instance;
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
