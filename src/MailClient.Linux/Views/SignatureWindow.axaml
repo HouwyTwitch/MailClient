@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctl="using:MailClient.Linux.Controls"
+        x:Class="MailClient.Linux.Views.SignatureWindow"
+        Title="Подпись" Width="780" Height="560" MinWidth="520" MinHeight="400"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Padding="20,12" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+                    <Button Content="Сохранить" Classes="accent" IsDefault="True" Click="Save_Click"/>
+                    <Button Content="Отмена" IsCancel="True" Click="Cancel_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusText" Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+            </DockPanel>
+        </Border>
+
+        <StackPanel DockPanel.Dock="Top" Margin="20,14,20,0" Spacing="4">
+            <TextBlock x:Name="HeaderText" Classes="title" Text="Подпись"/>
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="Подпись добавляется в конец текста письма, в ответах — над исходным письмом. В окне письма её можно вставить или убрать кнопкой «Подпись»."/>
+            <WrapPanel Margin="0,6,0,0">
+                <Button x:Name="DirectoryButton" Classes="tool" Content="Заполнить из адресной книги" Click="Directory_Click"
+                        ToolTip.Tip="Подпись с вашими ФИО, должностью, отделом и телефонами из адресной книги организации"/>
+                <Button x:Name="WebButton" Classes="tool" Content="Взять из Outlook в Интернете" Click="Web_Click"
+                        ToolTip.Tip="Подпись, настроенная в Outlook в Интернете (OWA) для этого почтового ящика"/>
+                <Button Classes="tool" Content="Очистить" Click="Clear_Click"/>
+            </WrapPanel>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="20,8,20,12" Spacing="6">
+            <CheckBox x:Name="OnNewCheck" Content="Добавлять подпись в новые письма"/>
+            <CheckBox x:Name="OnReplyCheck" Content="Добавлять подпись в ответы и пересылаемые письма"/>
+        </StackPanel>
+
+        <Border Margin="20,10,20,0" BorderThickness="1" CornerRadius="6" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <DockPanel>
+                <Border x:Name="FormatBar" DockPanel.Dock="Top" Padding="6,4" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <ComboBox x:Name="FontCombo" Width="170" SelectionChanged="FontCombo_SelectionChanged" ToolTip.Tip="Шрифт"/>
+                        <ComboBox x:Name="SizeCombo" Width="80" SelectionChanged="SizeCombo_SelectionChanged" ToolTip.Tip="Размер"/>
+                        <ToggleButton x:Name="BoldButton" Classes="tool" Content="Ж" FontWeight="Bold" Click="Format_Click" Tag="bold" ToolTip.Tip="Полужирный"/>
+                        <ToggleButton x:Name="ItalicButton" Classes="tool" Content="К" FontStyle="Italic" Click="Format_Click" Tag="italic" ToolTip.Tip="Курсив"/>
+                        <ToggleButton x:Name="UnderlineButton" Classes="tool" Content="Ч" Click="Format_Click" Tag="underline" ToolTip.Tip="Подчёркнутый"/>
+                        <Button Classes="tool" Content="↶" Click="Format_Click" Tag="undo" ToolTip.Tip="Отменить"/>
+                        <Button Classes="tool" Content="↷" Click="Format_Click" Tag="redo" ToolTip.Tip="Вернуть"/>
+                    </StackPanel>
+                </Border>
+                <ctl:HtmlEditor x:Name="Editor" MinHeight="160"/>
+            </DockPanel>
+        </Border>
+    </DockPanel>
+</Window>

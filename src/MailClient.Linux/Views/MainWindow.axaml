@@ -1,0 +1,274 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MailClient.Linux.ViewModels"
+        xmlns:shared="using:MailClient.App.ViewModels"
+        xmlns:ctl="using:MailClient.Linux.Controls"
+        x:Class="MailClient.Linux.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="{Binding WindowTitle}" Icon="/Assets/mailclient.png"
+        Width="1300" Height="800" MinWidth="900" MinHeight="520">
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+N" Command="{Binding NewMessageCommand}"/>
+        <KeyBinding Gesture="Ctrl+R" Command="{Binding ReplyCommand}"/>
+        <KeyBinding Gesture="Ctrl+Shift+R" Command="{Binding ReplyAllCommand}"/>
+        <KeyBinding Gesture="Ctrl+F" Command="{Binding ForwardCommand}"/>
+        <KeyBinding Gesture="Ctrl+Q" Command="{Binding MarkReadCommand}"/>
+        <KeyBinding Gesture="Ctrl+U" Command="{Binding MarkUnreadCommand}"/>
+        <KeyBinding Gesture="F5" Command="{Binding RefreshCommand}"/>
+    </Window.KeyBindings>
+
+    <DockPanel>
+        <!-- toolbar -->
+        <Border DockPanel.Dock="Top" Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                    <TextBox x:Name="SearchBox" Width="200" PlaceholderText="Поиск в папке (Enter)" Text="{Binding SearchText}" VerticalAlignment="Center">
+                        <TextBox.KeyBindings>
+                            <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}"/>
+                        </TextBox.KeyBindings>
+                    </TextBox>
+                    <Button Classes="tool" Content="☰" ToolTip.Tip="Меню">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="Добавить учётную запись…" Command="{Binding AddAccountCommand}"/>
+                                <MenuItem Header="Настройки учётной записи…" Command="{Binding EditCurrentAccountCommand}"/>
+                                <MenuItem Header="Подпись…" Command="{Binding EditSignatureCommand}"/>
+                                <MenuItem Header="Удалить учётную запись…" Command="{Binding RemoveCurrentAccountCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Открыть папку журналов" Command="{Binding OpenLogsCommand}"/>
+                                <MenuItem Header="О программе" Command="{Binding ShowAboutCommand}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+                <WrapPanel>
+                    <Button Classes="accent" Content="Написать" Command="{Binding NewMessageCommand}" ToolTip.Tip="Новое письмо (Ctrl+N)" Margin="0,0,8,0"/>
+                    <Button Classes="tool" Content="Ответить" Command="{Binding ReplyCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Ctrl+R"/>
+                    <Button Classes="tool" Content="Ответить всем" Command="{Binding ReplyAllCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Ctrl+Shift+R"/>
+                    <Button Classes="tool" Content="Переслать" Command="{Binding ForwardCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Ctrl+F"/>
+                    <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}"/>
+                    <Button Classes="tool" Content="Удалить" Command="{Binding DeleteCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Delete"/>
+                    <Button Classes="tool" Content="Переместить…" Command="{Binding MoveToCommand}" IsEnabled="{Binding HasSelection}"/>
+                    <Button Classes="tool" Content="Прочитано" Command="{Binding MarkReadCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Ctrl+Q"/>
+                    <Button Classes="tool" Content="Не прочитано" Command="{Binding MarkUnreadCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Ctrl+U"/>
+                    <Button Classes="tool" Content="Флажок" Command="{Binding ToggleFlagCommand}" IsEnabled="{Binding HasSelection}"/>
+                    <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}"/>
+                    <Button Classes="tool" Content="Обновить" Command="{Binding RefreshCommand}" ToolTip.Tip="F5"/>
+                </WrapPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- status bar -->
+        <Border DockPanel.Dock="Bottom" Padding="10,3" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <TextBlock Text="{Binding StatusText}" Classes="caption" TextTrimming="CharacterEllipsis"/>
+        </Border>
+
+        <Grid x:Name="Panes" ColumnDefinitions="260,4,430,4,*">
+            <!-- folders -->
+            <TreeView x:Name="FolderTree" ItemsSource="{Binding Roots}" SelectedItem="{Binding SelectedFolder}" Margin="0,4">
+                <TreeView.Styles>
+                    <Style Selector="TreeViewItem" x:DataType="shared:FolderNodeViewModel">
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                    </Style>
+                </TreeView.Styles>
+                <TreeView.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Отметить все как прочитанные" Command="{Binding MarkFolderReadCommand}"/>
+                        <Separator/>
+                        <MenuItem Header="Новая папка…" Command="{Binding CreateFolderCommand}"/>
+                        <MenuItem Header="Переименовать…" Command="{Binding RenameFolderCommand}" IsEnabled="{Binding CanModifyFolder}"/>
+                        <MenuItem Header="Удалить папку" Command="{Binding DeleteFolderCommand}" IsEnabled="{Binding CanModifyFolder}"/>
+                    </ContextMenu>
+                </TreeView.ContextMenu>
+                <TreeView.ItemTemplate>
+                    <TreeDataTemplate DataType="shared:FolderNodeViewModel" ItemsSource="{Binding Children}">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Right" Classes="badge" IsVisible="{Binding HasUnread}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                    ToolTip.Tip="{Binding BadgeTip}">
+                                <TextBlock Text="{Binding BadgeCount}" FontSize="11" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </TreeDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+
+            <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
+
+            <!-- message list -->
+            <DockPanel Grid.Column="2">
+                <StackPanel DockPanel.Dock="Top" Margin="12,8,8,6">
+                    <TextBlock Text="{Binding FolderTitle}" Classes="title" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="результаты поиска" Classes="caption" IsVisible="{Binding IsSearchResult}"/>
+                </StackPanel>
+                <Grid>
+                    <ListBox x:Name="MessageList" Background="Transparent" ItemsSource="{Binding Messages}" SelectedItem="{Binding SelectedMessage}" SelectionMode="Multiple"
+                             SelectionChanged="MessageList_SelectionChanged" DoubleTapped="MessageList_DoubleTapped">
+                        <ListBox.KeyBindings>
+                            <KeyBinding Gesture="Delete" Command="{Binding DeleteCommand}"/>
+                            <KeyBinding Gesture="Shift+Delete" Command="{Binding DeleteCommand}" CommandParameter="permanent"/>
+                        </ListBox.KeyBindings>
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Ответить" Command="{Binding ReplyCommand}"/>
+                                <MenuItem Header="Ответить всем" Command="{Binding ReplyAllCommand}"/>
+                                <MenuItem Header="Переслать" Command="{Binding ForwardCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Отметить как прочитанное" Command="{Binding MarkReadCommand}"/>
+                                <MenuItem Header="Отметить как непрочитанное" Command="{Binding MarkUnreadCommand}"/>
+                                <MenuItem Header="Флажок" Command="{Binding ToggleFlagCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Переместить в папку…" Command="{Binding MoveToCommand}"/>
+                                <MenuItem Header="Удалить" Command="{Binding DeleteCommand}"/>
+                                <MenuItem Header="Удалить безвозвратно" Command="{Binding DeleteCommand}" CommandParameter="permanent"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="shared:MessageItemViewModel">
+                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" Margin="4,4,4,4">
+                                    <TextBlock Text="{Binding Correspondent}" TextTrimming="CharacterEllipsis" FontSize="14"
+                                               Classes.unread="{Binding !IsRead}"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="8,0,0,0">
+                                        <TextBlock Text="⚑" Foreground="#D13438" IsVisible="{Binding IsFlagged}"/>
+                                        <TextBlock Text="📎" IsVisible="{Binding HasAttachments}"/>
+                                        <TextBlock Text="{Binding DateText}" Classes="caption" VerticalAlignment="Center" ToolTip.Tip="{Binding DateTooltip}"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Subject}" TextTrimming="CharacterEllipsis"
+                                               Classes.unread="{Binding !IsRead}" Classes.subject="True"/>
+                                    <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding Preview}" Classes="caption" TextTrimming="CharacterEllipsis"
+                                               IsVisible="{Binding Preview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock Text="{Binding ListStatus}" Classes="caption" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0"
+                               TextWrapping="Wrap" TextAlignment="Center"/>
+                </Grid>
+            </DockPanel>
+
+            <GridSplitter Grid.Column="3" ResizeDirection="Columns"/>
+
+            <!-- reading pane -->
+            <Grid Grid.Column="4">
+                <TextBlock Text="Выберите письмо для просмотра" Classes="caption" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           IsVisible="{Binding !HasPreview}"/>
+                <Panel IsVisible="{Binding HasPreview}">
+                <DockPanel DataContext="{Binding Preview}" x:DataType="shared:MessagePreviewViewModel">
+                    <StackPanel DockPanel.Dock="Top" Margin="20,14,20,8" Spacing="4">
+                        <SelectableTextBlock Text="{Binding Subject}" Classes="title" TextWrapping="Wrap"/>
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding DateText}" Classes="caption" Margin="8,2,0,0"/>
+                            <ItemsControl ItemsSource="{Binding From}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="shared:RecipientItem">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" ToolTip.Tip="{Binding ToolTip}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DockPanel>
+                        <TextBlock Text="{Binding OnBehalfText}" Classes="caption" IsVisible="{Binding IsSentOnBehalf}"/>
+                        <!-- long distribution lists scroll instead of taking the whole pane -->
+                        <ScrollViewer MaxHeight="96">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock Text="Кому:" Classes="caption" Margin="0,0,6,0"/>
+                                    <ItemsControl ItemsSource="{Binding To}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="shared:RecipientItem">
+                                                <TextBlock Classes="caption" Margin="0,0,6,0" ToolTip.Tip="{Binding ToolTip}">
+                                                    <Run Text="{Binding Name}"/><Run Text="{Binding Separator}"/>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </DockPanel>
+                                <DockPanel IsVisible="{Binding HasCc}">
+                                    <TextBlock Text="Копия:" Classes="caption" Margin="0,0,6,0"/>
+                                    <ItemsControl ItemsSource="{Binding Cc}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="shared:RecipientItem">
+                                                <TextBlock Classes="caption" Margin="0,0,6,0" ToolTip.Tip="{Binding ToolTip}">
+                                                    <Run Text="{Binding Name}"/><Run Text="{Binding Separator}"/>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </DockPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                        <TextBlock Text="Высокая важность" Foreground="#C42B1C" FontSize="12" IsVisible="{Binding IsHighImportance}"/>
+                    </StackPanel>
+
+                    <!-- meeting request -->
+                    <Border DockPanel.Dock="Top" Margin="20,4,20,6" Padding="12,8" CornerRadius="6" BorderThickness="1"
+                            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" IsVisible="{Binding IsMeetingRequest}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Button Classes="accent" Content="Принять" Command="{Binding RespondCommand}" CommandParameter="Accept"/>
+                                <Button Content="Под вопросом" Command="{Binding RespondCommand}" CommandParameter="Tentative"/>
+                                <Button Content="Отклонить" Command="{Binding RespondCommand}" CommandParameter="Decline"/>
+                            </StackPanel>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Приглашение на встречу" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding MeetingText}" Classes="caption" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- blocked remote content -->
+                    <Border DockPanel.Dock="Top" Margin="20,4,20,6" Padding="12,6" CornerRadius="6" Background="#33F2C94C" IsVisible="{Binding ShowRemoteBanner}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                                <Button Content="Показать изображения" Command="{Binding ShowRemoteContentCommand}"/>
+                                <Button Content="Всегда для этого отправителя" Command="{Binding TrustSenderCommand}"/>
+                            </StackPanel>
+                            <TextBlock Text="Изображения из интернета заблокированы для защиты конфиденциальности." TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- attachments -->
+                    <DockPanel DockPanel.Dock="Top" Margin="18,2,18,8" IsVisible="{Binding HasAttachments}">
+                        <Button DockPanel.Dock="Right" Content="Сохранить все" VerticalAlignment="Top" Command="{Binding SaveAllAttachmentsCommand}"/>
+                        <ScrollViewer MaxHeight="140">
+                            <ItemsControl ItemsSource="{Binding Attachments}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="shared:AttachmentItemViewModel">
+                                        <Border Margin="2" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Classes="tool" ToolTip.Tip="Открыть"
+                                                        Command="{Binding $parent[ItemsControl].((shared:MessagePreviewViewModel)DataContext).OpenAttachmentCommand}"
+                                                        CommandParameter="{Binding}">
+                                                    <StackPanel MaxWidth="220">
+                                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                                        <TextBlock Text="{Binding SizeText}" Classes="caption" FontSize="11"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <Button Classes="tool" Content="💾" ToolTip.Tip="Сохранить как…"
+                                                        Command="{Binding $parent[ItemsControl].((shared:MessagePreviewViewModel)DataContext).SaveAttachmentCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
+
+                    <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                        <ctl:HtmlView Html="{Binding Html}"/>
+                    </Border>
+                </DockPanel>
+                </Panel>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

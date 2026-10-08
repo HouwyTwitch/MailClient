@@ -40,6 +40,9 @@ public sealed class ExchangeProvider : IMailProvider
 
     public string? ServerVersion => _ews.LastServerVersion;
 
+    /// <summary>The SOAP transport (tests adjust its timing).</summary>
+    internal EwsClient Transport => _ews;
+
     /// <summary>
     /// Best EWS schema version for a server build reported in ServerVersionInfo ("15.2.1544.4" → Exchange2016),
     /// or null when unknown. Exchange 2013 is 15.0, 2016 is 15.1, 2019 and Subscription Edition are 15.2.
@@ -933,6 +936,36 @@ public sealed class ExchangeProvider : IMailProvider
     /// <summary>Import (.eml): stored as a regular read message (READ|UNMODIFIED), not as a draft.</summary>
     public Task<string> ImportMimeAsync(string folderId, byte[] mime, CancellationToken ct = default) =>
         CreateMimeItemAsync(folderId, mime, MimeMail.MsgFlagRead | MimeMail.MsgFlagUnmodified, isRead: true, ct);
+
+    // ===================================================================== signature
+
+    /// <summary>
+    /// The signature set up in Outlook on the web: the "OWA.UserOptions" configuration of the mailbox root holds it
+    /// as HTML ("signaturehtml") and as text ("signaturetext"). Returns null when none is set.
+    /// </summary>
+    public async Task<string?> GetWebSignatureAsync(CancellationToken ct = default)
+    {
+        var folder = new XElement(T + "DistinguishedFolderId", new XAttribute("Id", "root"));
+        if (SharedMailbox is { } shared) folder.Add(new XElement(T + "Mailbox", new XElement(T + "EmailAddress", shared)));
+        var request = new XElement(M + "GetUserConfiguration",
+            new XElement(M + "UserConfigurationName", new XAttribute("Name", "OWA.UserOptions"), folder),
+            new XElement(M + "UserConfigurationProperties", "Dictionary"));
+        var response = await _ews.SendAsync(request, ct).ConfigureAwait(false);
+        var message = EwsClient.ResponseMessages(response).FirstOrDefault();
+        if (message != null && (string?)message.Attribute("ResponseClass") == "Error" &&
+            message.Element(M + "ResponseCode")?.Value is "ErrorItemNotFound" or "ErrorFolderNotFound")
+            return null; // never configured in Outlook on the web
+        EwsClient.ThrowOnError(response);
+
+        string? Entry(string key) => response.Descendants(T + "DictionaryEntry")
+            .FirstOrDefault(e => string.Equals(e.Element(T + "DictionaryKey")?.Element(T + "Value")?.Value, key, StringComparison.OrdinalIgnoreCase))
+            ?.Element(T + "DictionaryValue")?.Element(T + "Value")?.Value;
+
+        var html = Entry("signaturehtml");
+        if (!string.IsNullOrWhiteSpace(html)) return html;
+        var text = Entry("signaturetext");
+        return string.IsNullOrWhiteSpace(text) ? null : MessageSignature.FromText(text);
+    }
 
     // ===================================================================== directory
 

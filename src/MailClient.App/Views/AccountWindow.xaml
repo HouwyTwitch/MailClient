@@ -158,8 +158,10 @@
                         </ComboBox>
 
                         <TextBlock Text="Подпись" Style="{StaticResource FieldLabel}"/>
-                        <TextBox AutomationProperties.Name="Подпись" x:Name="SignatureBox" AcceptsReturn="True" TextWrapping="Wrap" Height="90" VerticalContentAlignment="Top"
-                                 VerticalScrollBarVisibility="Auto"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Изменить подпись…" Margin="8,0,0,0" VerticalAlignment="Top" Click="EditSignature_Click"/>
+                            <TextBlock x:Name="SignatureText" TextWrapping="Wrap" MaxHeight="72" TextTrimming="CharacterEllipsis" Style="{StaticResource Caption}"/>
+                        </DockPanel>
 
                         <TextBlock Text="Безопасность" Style="{StaticResource SectionHeader}"/>
                         <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,2,0,6"

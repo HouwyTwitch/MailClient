@@ -6,7 +6,6 @@ using CommunityToolkit.Mvvm.Input;
 using MailClient.App.Services;
 using MailClient.Core.Models;
 using MailClient.Core.Rendering;
-using Microsoft.Win32;
 
 namespace MailClient.App.ViewModels;
 
@@ -149,13 +148,12 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
     private async Task SaveAttachmentAsync(AttachmentItemViewModel? item)
     {
         if (item == null) return;
-        var dlg = new SaveFileDialog { FileName = SafeFileName(item.Name), Title = "Сохранить вложение" };
-        if (dlg.ShowDialog() != true) return;
+        if (FileDialogs.SaveFile(SafeFileName(item.Name), "Сохранить вложение") is not { } target) return;
         try
         {
             var content = await _session.Provider.GetAttachmentAsync(item.Info.Id);
-            await File.WriteAllBytesAsync(dlg.FileName, content.Content);
-            MarkAsDownloaded(dlg.FileName);
+            await File.WriteAllBytesAsync(target, content.Content);
+            MarkAsDownloaded(target);
         }
         catch (Exception ex)
         {
@@ -166,18 +164,17 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveAllAttachmentsAsync()
     {
-        var dlg = new OpenFolderDialog { Title = "Папка для сохранения вложений" };
-        if (dlg.ShowDialog() != true) return;
+        if (FileDialogs.PickFolder("Папка для сохранения вложений") is not { } folder) return;
         try
         {
             var all = await _session.Provider.GetAttachmentsAsync(Attachments.Select(a => a.Info.Id));
             foreach (var a in all)
             {
-                var path = UniquePath(Path.Combine(dlg.FolderName, SafeFileName(a.Info.Name)));
+                var path = UniquePath(Path.Combine(folder, SafeFileName(a.Info.Name)));
                 await File.WriteAllBytesAsync(path, a.Content);
                 MarkAsDownloaded(path);
             }
-            WindowsIntegration.ShellOpen(dlg.FolderName);
+            DesktopIntegration.ShellOpen(folder);
         }
         catch (Exception ex)
         {
@@ -189,7 +186,7 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
     private async Task OpenAttachmentAsync(AttachmentItemViewModel? item)
     {
         if (item == null) return;
-        if (WindowsIntegration.IsDangerousFile(item.Name) &&
+        if (DesktopIntegration.IsDangerousFile(item.Name) &&
             !Dialogs.Confirm($"Файл «{item.Name}» может содержать вредоносный код.\n\nОткрывайте такие файлы, только если уверены в отправителе. Открыть?",
                 "Предупреждение безопасности"))
             return;
@@ -200,7 +197,7 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
             var path = Path.Combine(dir, SafeFileName(item.Name));
             await File.WriteAllBytesAsync(path, content.Content);
             MarkAsDownloaded(path);
-            WindowsIntegration.ShellOpen(path);
+            DesktopIntegration.ShellOpen(path);
         }
         catch (Exception ex)
         {
@@ -232,6 +229,8 @@ public sealed partial class MessagePreviewViewModel : ObservableObject
     /// <summary>Adds the "Mark of the Web" so Windows/Office treat downloaded attachments as untrusted (Protected View, SmartScreen).</summary>
     private static void MarkAsDownloaded(string path)
     {
+        // An NTFS alternate stream; elsewhere it would become a stray file next to the attachment.
+        if (!OperatingSystem.IsWindows()) return;
         try
         {
             File.WriteAllText(path + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n");

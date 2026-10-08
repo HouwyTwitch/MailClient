@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Корпоративная почта
+Name[en]=Corporate Mail
+GenericName=Почтовый клиент
+GenericName[en]=Mail Client
+Comment=Почта Microsoft Exchange и IMAP/SMTP
+Comment[en]=Microsoft Exchange and IMAP/SMTP mail
+Exec=mailclient %u
+Icon=mailclient
+Terminal=false
+Categories=Network;Email;Office;
+MimeType=x-scheme-handler/mailto;
+Keywords=mail;email;exchange;почта;
+StartupNotify=true

@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MailClient.App.Services;
@@ -118,18 +117,8 @@ public sealed partial class ContactCardViewModel : ObservableObject
     private void Write() => _writeTo(new EmailAddress(DisplayName == Email ? "" : DisplayName, Email));
 
     [RelayCommand]
-    private void CopyAddress()
-    {
-        try
-        {
-            Clipboard.SetText(Address.Name.Length > 0 && Address.Name != Email ? $"{Address.Name} <{Email}>" : Email);
-        }
-        catch (System.Runtime.InteropServices.COMException ex)
-        {
-            // The clipboard is briefly locked by another program.
-            Dialogs.Error(ex, "Не удалось скопировать адрес");
-        }
-    }
+    private void CopyAddress() =>
+        DesktopIntegration.CopyText(Address.Name.Length > 0 && Address.Name != Email ? $"{Address.Name} <{Email}>" : Email);
 
     [RelayCommand]
     private async Task AddToContactsAsync()

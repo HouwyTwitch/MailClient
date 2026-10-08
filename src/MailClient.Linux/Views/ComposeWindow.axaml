@@ -1,0 +1,105 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shared="using:MailClient.App.ViewModels"
+        xmlns:svc="using:MailClient.App.Services"
+        xmlns:ctl="using:MailClient.Linux.Controls"
+        x:Class="MailClient.Linux.Views.ComposeWindow"
+        x:DataType="shared:ComposeViewModel"
+        Title="{Binding WindowTitle}" Icon="/Assets/mailclient.png"
+        Width="900" Height="760" MinWidth="620" MinHeight="460">
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+Enter" Command="{Binding SendCommand}"/>
+        <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveDraftCommand}"/>
+        <KeyBinding Gesture="Ctrl+K" Command="{Binding CheckNamesCommand}"/>
+    </Window.KeyBindings>
+    <DockPanel>
+        <!-- commands -->
+        <Border DockPanel.Dock="Top" Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <Button Classes="accent" Content="Отправить" Command="{Binding SendCommand}" IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Ctrl+Enter"/>
+                <Button Classes="tool" Content="Сохранить черновик" Command="{Binding SaveDraftCommand}" ToolTip.Tip="Ctrl+S"/>
+                <Button Classes="tool" Content="Вложить файл…" Click="Attach_Click"/>
+                <Button Classes="tool" Content="Проверить имена" Command="{Binding CheckNamesCommand}" ToolTip.Tip="Ctrl+K"/>
+                <Button Classes="tool" Content="Подпись ▾" ToolTip.Tip="Вставить, убрать или изменить подпись">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Вставить подпись" Click="InsertSignature_Click"/>
+                            <MenuItem Header="Убрать подпись" Click="RemoveSignature_Click"/>
+                            <Separator/>
+                            <MenuItem Header="Изменить подпись…" Click="EditSignature_Click"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <ToggleButton Classes="tool" Content="! Важное" IsChecked="{Binding HighImportance}" ToolTip.Tip="Высокая важность"/>
+                <CheckBox Content="Уведомление о прочтении" IsChecked="{Binding RequestReadReceipt}" Margin="8,0,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- status -->
+        <Border DockPanel.Dock="Bottom" Padding="10,3" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <TextBlock Text="{Binding StatusText}" Classes="caption"/>
+        </Border>
+
+        <!-- header fields -->
+        <Grid DockPanel.Dock="Top" Margin="12,10,12,4" ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+            <TextBlock Text="От" VerticalAlignment="Center" IsVisible="{Binding HasMultipleAccounts}"/>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" HorizontalAlignment="Stretch" Margin="0,2"
+                      IsVisible="{Binding HasMultipleAccounts}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate DataType="svc:AccountSession">
+                        <TextBlock Text="{Binding Settings.EmailAddress}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Grid.Row="1" Text="Кому" VerticalAlignment="Center"/>
+            <TextBox x:Name="ToBox" Grid.Row="1" Grid.Column="1" Text="{Binding To}" Margin="0,2" ToolTip.Tip="Адреса через «;». Можно ввести имя — нажмите «Проверить имена»."/>
+            <Button Grid.Row="1" Grid.Column="2" Classes="tool" Content="Скрытая копия" Command="{Binding ToggleBccCommand}" Margin="6,0,0,0"/>
+            <TextBlock Grid.Row="2" Text="Копия" VerticalAlignment="Center"/>
+            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Cc}" Margin="0,2"/>
+            <TextBlock Grid.Row="3" Text="Скрытая" VerticalAlignment="Center" IsVisible="{Binding ShowBcc}"/>
+            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding Bcc}" Margin="0,2" IsVisible="{Binding ShowBcc}"/>
+            <TextBlock Grid.Row="4" Text="Тема" VerticalAlignment="Center"/>
+            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Subject}" Margin="0,2"/>
+        </Grid>
+
+        <!-- attachments -->
+        <ScrollViewer DockPanel.Dock="Top" MaxHeight="96" Margin="100,0,12,4" IsVisible="{Binding HasAttachments}">
+            <ItemsControl ItemsSource="{Binding Attachments}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="shared:ComposeAttachment">
+                        <Border Margin="2" Padding="8,2,2,2" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" MaxWidth="240" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding SizeText}" Classes="caption" VerticalAlignment="Center"/>
+                                <Button Classes="tool" Content="✕" ToolTip.Tip="Убрать вложение" Padding="6,2"
+                                        Command="{Binding $parent[ItemsControl].((shared:ComposeViewModel)DataContext).RemoveAttachmentCommand}"
+                                        CommandParameter="{Binding}"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+        <TextBlock DockPanel.Dock="Top" Text="{Binding QuoteNote}" Classes="caption" Margin="100,0,12,4" IsVisible="{Binding HasQuoteNote}" TextWrapping="Wrap"/>
+
+        <!-- formatting -->
+        <Border x:Name="FormatBar" DockPanel.Dock="Top" Padding="8,4" BorderThickness="0,1,0,1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+                <ComboBox x:Name="FontCombo" Width="170" SelectionChanged="FontCombo_SelectionChanged" ToolTip.Tip="Шрифт"/>
+                <ComboBox x:Name="SizeCombo" Width="80" SelectionChanged="SizeCombo_SelectionChanged" ToolTip.Tip="Размер"/>
+                <ToggleButton x:Name="BoldButton" Classes="tool" Content="Ж" FontWeight="Bold" Click="Format_Click" Tag="bold" ToolTip.Tip="Полужирный"/>
+                <ToggleButton x:Name="ItalicButton" Classes="tool" Content="К" FontStyle="Italic" Click="Format_Click" Tag="italic" ToolTip.Tip="Курсив"/>
+                <ToggleButton x:Name="UnderlineButton" Classes="tool" Content="Ч" Click="Format_Click" Tag="underline" ToolTip.Tip="Подчёркнутый"/>
+                <Button Classes="tool" Content="• Список" Click="Format_Click" Tag="insertUnorderedList"/>
+                <Button Classes="tool" Content="1. Список" Click="Format_Click" Tag="insertOrderedList"/>
+                <Button Classes="tool" Content="↶" Click="Format_Click" Tag="undo" ToolTip.Tip="Отменить"/>
+                <Button Classes="tool" Content="↷" Click="Format_Click" Tag="redo" ToolTip.Tip="Вернуть"/>
+            </StackPanel>
+        </Border>
+
+        <ctl:HtmlEditor x:Name="Editor"/>
+    </DockPanel>
+</Window>

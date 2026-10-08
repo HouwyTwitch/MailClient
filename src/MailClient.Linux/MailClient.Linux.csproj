@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Desktop client for Linux (Astra Linux SE 1.7/1.8, Debian, Ubuntu): Avalonia UI over the same mail engine
+       (MailClient.Core/Exchange/Imap) and the platform-neutral view models of the Windows application. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>mailclient</AssemblyName>
+    <RootNamespace>MailClient.Linux</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- Russian dates and sorting need ICU (libicu from the distribution). -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- Not published as a single file: every native library stays a separate ELF file, so it can be
+         signed for the closed software environment (ЗПС) of Astra Linux. -->
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- As in the WPF project, whose files are shared here: System.IO is imported explicitly. -->
+    <Using Remove="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- NTLM for Exchange without the gss-ntlmssp package (not installed on Astra/Debian by default);
+         Kerberos (Negotiate) still goes through the system GSSAPI and the user's ticket. -->
+    <RuntimeHostConfigurationOption Include="System.Net.Security.UseManagedNtlm" Value="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Controls.WebView" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MailClient.Linux.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MailClient.Core\MailClient.Core.csproj" />
+    <ProjectReference Include="..\MailClient.Exchange\MailClient.Exchange.csproj" />
+    <ProjectReference Include="..\MailClient.Imap\MailClient.Imap.csproj" />
+  </ItemGroup>
+
+  <!-- Platform-neutral code shared with the Windows application (one source, two front ends). -->
+  <ItemGroup>
+    <Compile Include="..\MailClient.App\Services\AccountSession.cs" Link="Shared\AccountSession.cs" />
+    <Compile Include="..\MailClient.App\Services\AppInfo.cs" Link="Shared\AppInfo.cs" />
+    <Compile Include="..\MailClient.App\Services\AppPaths.cs" Link="Shared\AppPaths.cs" />
+    <Compile Include="..\MailClient.App\Services\AppSettings.cs" Link="Shared\AppSettings.cs" />
+    <Compile Include="..\MailClient.App\Services\CertificateImport.cs" Link="Shared\CertificateImport.cs" />
+    <Compile Include="..\MailClient.App\Services\Log.cs" Link="Shared\Log.cs" />
+    <Compile Include="..\MailClient.App\Services\MimeTypes.cs" Link="Shared\MimeTypes.cs" />
+    <Compile Include="..\MailClient.App\Services\ProviderFactory.cs" Link="Shared\ProviderFactory.cs" />
+    <Compile Include="..\MailClient.App\Services\RuText.cs" Link="Shared\RuText.cs" />
+    <Compile Include="..\MailClient.App\ViewModels\ComposeViewModel.cs" Link="Shared\ComposeViewModel.cs" />
+    <Compile Include="..\MailClient.App\ViewModels\ContactCardViewModel.cs" Link="Shared\ContactCardViewModel.cs" />
+    <Compile Include="..\MailClient.App\ViewModels\FolderNodeViewModel.cs" Link="Shared\FolderNodeViewModel.cs" />
+    <Compile Include="..\MailClient.App\ViewModels\MessageItemViewModel.cs" Link="Shared\MessageItemViewModel.cs" />
+    <Compile Include="..\MailClient.App\ViewModels\MessagePreviewViewModel.cs" Link="Shared\MessagePreviewViewModel.cs" />
+    <EmbeddedResource Include="..\MailClient.App\Assets\editor.html" Link="Assets\editor.html" LogicalName="MailClient.App.Assets.editor.html" />
+    <AvaloniaResource Include="Assets\*.png" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

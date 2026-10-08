@@ -466,6 +466,134 @@ public class ExchangeProviderTests
     }
 
     [Fact]
+    public async Task Read_state_change_is_repeated_after_a_dropped_connection()
+    {
+        var fake = new FakeEws().On("UpdateItem", Response("UpdateItem", Success("UpdateItem")));
+        var drop = new DropOnce(fake);
+        using var p = new ExchangeProvider(Account(), new HttpClient(drop));
+        p.Transport.NetworkRetryDelay = _ => TimeSpan.Zero;
+
+        await p.SetReadStateAsync(["AAA="], true, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, drop.Drops);
+        Assert.Single(fake.All("UpdateItem"));
+    }
+
+    [Fact]
+    public void Only_changes_that_can_run_twice_are_repeated()
+    {
+        static XElement Op(string name, string? disposition = null)
+        {
+            var e = new XElement(M + name);
+            if (disposition != null) e.Add(new XAttribute("MessageDisposition", disposition));
+            return e;
+        }
+
+        Assert.True(EwsClient.CanRepeat(Op("GetItem")));
+        Assert.True(EwsClient.CanRepeat(Op("UpdateItem", "SaveOnly")));
+        Assert.True(EwsClient.CanRepeat(Op("MarkAllItemsAsRead")));
+        Assert.True(EwsClient.CanRepeat(Op("DeleteItem")));
+        Assert.False(EwsClient.CanRepeat(Op("UpdateItem", "SendAndSaveCopy")));
+        Assert.False(EwsClient.CanRepeat(Op("CreateItem", "SaveOnly")));
+        Assert.False(EwsClient.CanRepeat(Op("CreateItem", "SendOnly")));
+        Assert.False(EwsClient.CanRepeat(Op("CopyItem")));
+        Assert.False(EwsClient.CanRepeat(Op("CreateFolder")));
+    }
+
+    /// <summary>Drops the first request that arrives after <see cref="Arm"/> (a connection cut while idle).</summary>
+    private sealed class DropAfterIdle : HttpMessageHandler
+    {
+        private readonly FakeEws _inner;
+        private bool _armed;
+        public readonly List<string> Dropped = new();
+        public DropAfterIdle(FakeEws inner) => _inner = inner;
+        public void Arm() => _armed = true;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (_armed)
+            {
+                _armed = false;
+                var op = XDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).Root!.Element(Soap + "Body")!.Elements().First();
+                Dropped.Add(op.Name.LocalName);
+                throw new HttpRequestException("An error occurred while sending the request.", new IOException("connection reset"));
+            }
+            return await new HttpMessageInvoker(_inner).SendAsync(request, ct);
+        }
+    }
+
+    [Fact]
+    public async Task After_a_pause_sending_goes_out_on_a_checked_connection()
+    {
+        var fake = new FakeEws()
+            .On("GetFolder", Response("GetFolder", Success("GetFolder", "<m:Folders><t:Folder><t:FolderId Id=\"R\"/></t:Folder></m:Folders>")))
+            .On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items/>")));
+        var network = new DropAfterIdle(fake);
+        var account = Account();
+        account.SaveSentCopy = false;
+        using var p = new ExchangeProvider(account, new HttpClient(network));
+        p.Transport.NetworkRetryDelay = _ => TimeSpan.Zero;
+        var now = new DateTime(2026, 10, 7, 8, 0, 0, DateTimeKind.Utc);
+        p.Transport.UtcNow = () => now;
+        await p.ConnectAsync(TestContext.Current.CancellationToken);
+
+        now = now.AddMinutes(2);
+        network.Arm(); // the firewall forgot the idle connection
+        await p.SendAsync(new OutgoingMessage { To = { new EmailAddress("", "a@b.ru") }, Subject = "x", Body = "y" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["GetFolder"], network.Dropped);
+        Assert.Single(fake.All("CreateItem"));
+        var check = fake.Requests[^2];
+        Assert.Equal("GetFolder", check.Name.LocalName);
+        Assert.Empty(fake.ValidationErrors);
+    }
+
+    [Fact]
+    public async Task Too_many_connections_is_a_pause_not_an_error()
+    {
+        var fake = new FakeEws()
+            .On("FindItem", Response("FindItem", Error("FindItem", "ErrorExceededConnectionCount", "You have exceeded the maximum number of connections.")))
+            .On("FindItem", Response("FindItem", Success("FindItem", ItemsRoot(IdOnly("AAA=")))))
+            .ServeItems(new Dictionary<string, string> { ["AAA="] = MessageXml });
+        using var p = fake.CreateProvider();
+        p.Transport.ThrottlingPause = TimeSpan.FromMilliseconds(10);
+
+        var page = await p.GetMessagesAsync("inbox", 0, 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, fake.All("FindItem").Count());
+        Assert.Single(page.Items);
+    }
+
+    [Fact]
+    public async Task Signature_from_outlook_on_the_web_is_read_from_the_mailbox_configuration()
+    {
+        const string config = """
+            <m:UserConfiguration>
+              <t:UserConfigurationName Name="OWA.UserOptions"><t:DistinguishedFolderId Id="root"/></t:UserConfigurationName>
+              <t:Dictionary>
+                <t:DictionaryEntry>
+                  <t:DictionaryKey><t:Type>String</t:Type><t:Value>timezone</t:Value></t:DictionaryKey>
+                  <t:DictionaryValue><t:Type>String</t:Type><t:Value>Russian Standard Time</t:Value></t:DictionaryValue>
+                </t:DictionaryEntry>
+                <t:DictionaryEntry>
+                  <t:DictionaryKey><t:Type>String</t:Type><t:Value>signaturehtml</t:Value></t:DictionaryKey>
+                  <t:DictionaryValue><t:Type>String</t:Type><t:Value>&lt;div&gt;&lt;b&gt;Иванов И. И.&lt;/b&gt;&lt;/div&gt;</t:Value></t:DictionaryValue>
+                </t:DictionaryEntry>
+              </t:Dictionary>
+            </m:UserConfiguration>
+            """;
+        var fake = new FakeEws()
+            .On("GetUserConfiguration", Response("GetUserConfiguration", Success("GetUserConfiguration", config)))
+            .On("GetUserConfiguration", Response("GetUserConfiguration", Error("GetUserConfiguration", "ErrorItemNotFound")));
+        using var p = fake.CreateProvider();
+
+        Assert.Equal("<div><b>Иванов И. И.</b></div>", await p.GetWebSignatureAsync(TestContext.Current.CancellationToken));
+        Assert.Null(await p.GetWebSignatureAsync(TestContext.Current.CancellationToken));   // never set up
+        var request = fake.Last("GetUserConfiguration");
+        Assert.Equal("OWA.UserOptions", request.Element(M + "UserConfigurationName")!.Attribute("Name")!.Value);
+        Assert.Empty(fake.ValidationErrors);
+    }
+
+    [Fact]
     public async Task Sending_is_never_retried_automatically_to_avoid_duplicates()
     {
         var fake = new FakeEws().On("CreateItem", Response("CreateItem", Success("CreateItem", "<m:Items/>")));

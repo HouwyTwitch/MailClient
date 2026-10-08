@@ -15,6 +15,7 @@ jobs:
     permissions:
       contents: write # a GitHub Release is published for version tags
     env:
+      AVALONIA_TELEMETRY_OPTOUT: "1"
       # Optional code signing: a PFX certificate (base64) and its password in the repository secrets.
       SIGNING_CERT_PFX: ${{ secrets.SIGNING_CERT_PFX }}
       SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
@@ -91,6 +92,12 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "${{ github.ref_name }}" --title "Корпоративная почта ${{ env.VERSION }}" --generate-notes
-          (Get-ChildItem publish\MailClient-Setup-*.exe).FullName publish\SHA256SUMS.txt
+        run: |
+          # The Linux workflow may have created the release already.
+          gh release view "${{ github.ref_name }}" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "${{ github.ref_name }}" --title "Корпоративная почта ${{ env.VERSION }}" --generate-notes
+            if ($LASTEXITCODE -ne 0) { gh release view "${{ github.ref_name }}" *> $null; if ($LASTEXITCODE -ne 0) { throw "release not created" } }
+          }
+          gh release upload "${{ github.ref_name }}" (Get-ChildItem publish\MailClient-Setup-*.exe).FullName publish\SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload failed" }

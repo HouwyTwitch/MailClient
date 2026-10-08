@@ -1,0 +1,37 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MailClient.Linux.App"
+             RequestedThemeVariant="Default"
+             Name="Корпоративная почта">
+    <Application.Styles>
+        <FluentTheme />
+        <Style Selector=":is(TextBlock).caption">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Opacity" Value="0.7"/>
+        </Style>
+        <Style Selector=":is(TextBlock).title">
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="Button.tool, ToggleButton.tool">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="9,5"/>
+        </Style>
+        <Style Selector="Button.tool:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="TextBlock.unread">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="TextBlock.subject.unread">
+            <Setter Property="Foreground" Value="{DynamicResource SystemControlHighlightAccentBrush}"/>
+        </Style>
+        <Style Selector="Border.badge">
+            <Setter Property="Background" Value="{DynamicResource SystemAccentColor}"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="Padding" Value="6,0"/>
+            <Setter Property="MinWidth" Value="18"/>
+            <Setter Property="Height" Value="18"/>
+        </Style>
+    </Application.Styles>
+</Application>
