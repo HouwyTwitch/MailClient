@@ -115,5 +115,23 @@ const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode =
   html = await ev(() => getContent());
   assert(!/<span[^>]*><\/span>/.test(html) && /18pt;?">two</.test(html), 'undo restores 18pt, no empty spans: ' + html);
 
+  // 12. signature: inserted after the text, replaced for another account, removed, left alone when absent
+  await ev(() => { setBaseFont('Calibri', 11); setContent('<p><br></p><p><br></p><div id="mc-signature"><div>Иванов</div></div>'); });
+  await ev(() => setSignature('<div><b>Петров</b></div>', true));
+  html = await ev(() => getContent());
+  assert(/<div id="mc-signature"><div><b>Петров<\/b><\/div><\/div><\/div>$/.test(html) && !/Иванов/.test(html), 'signature replaced: ' + html);
+  await ev(() => setSignature(''));
+  html = await ev(() => getContent());
+  assert(!/mc-signature|Петров/.test(html), 'signature removed: ' + html);
+  await ev(() => setSignature('<div>Сидоров</div>', true));
+  html = await ev(() => getContent());
+  assert(!/Сидоров/.test(html), 'no signature added when only replacing: ' + html);
+  await ev(() => { setContent('<p>Текст ответа</p>'); setSignature('<div>Сидоров</div>'); });
+  html = await ev(() => getContent());
+  assert(/<p>Текст ответа<\/p><p><br><\/p><div id="mc-signature"><div>Сидоров<\/div><\/div>/.test(html), 'signature inserted after the text: ' + html);
+  await ev(() => setSignature('<div>Сидоров</div>'));
+  html = await ev(() => getContent());
+  assert((html.match(/mc-signature/g) || []).length === 1, 'inserting again does not duplicate: ' + html);
+
   await browser.close();
 })();

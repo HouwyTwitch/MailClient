@@ -19,15 +19,17 @@ public partial class AccountWindow : Window
     private readonly AccountSettings _account;
     private readonly CredentialProvider _credentials;
     private readonly bool _isNew;
+    private readonly AccountSession? _session;
     private string _certPem;
     private bool _saved;
 
     public AccountWindow() : this(new AccountSettings(), new CredentialProvider(new LinuxSecretStore()), true) { }
 
-    public AccountWindow(AccountSettings account, CredentialProvider credentials, bool isNew)
+    public AccountWindow(AccountSettings account, CredentialProvider credentials, bool isNew, AccountSession? session = null)
     {
         InitializeComponent();
         _account = account;
+        _session = session;
         _credentials = credentials;
         _isNew = isNew;
         _certPem = account.TrustedRootCertificatesPem;
@@ -49,7 +51,7 @@ public partial class AccountWindow : Window
         SmtpHostBox.Text = account.SmtpHost;
         SmtpPortBox.Text = account.SmtpPort.ToString(CultureInfo.InvariantCulture);
         Select(SmtpSecurityCombo, account.SmtpSecurity.ToString());
-        SignatureBox.Text = account.Signature;
+        ShowSignature();
         if (OrganizationDefaults.Current.LockServerSettings && !string.IsNullOrWhiteSpace(OrganizationDefaults.Current.EwsUrl))
             EwsBox.IsReadOnly = true;
         UpdateCertText();
@@ -58,13 +60,27 @@ public partial class AccountWindow : Window
     }
 
     /// <summary>Shows the dialog; true when the account was saved (the password is already in the secret store).</summary>
-    public static bool Edit(AccountSettings account, CredentialProvider credentials, bool isNew)
+    public static bool Edit(AccountSettings account, CredentialProvider credentials, bool isNew, AccountSession? session = null)
     {
-        var window = new AccountWindow(account, credentials, isNew);
+        var window = new AccountWindow(account, credentials, isNew, session);
         return Dialogs.ShowModal(window, () => window._saved);
     }
 
     private bool IsImap => ImapRadio.IsChecked == true;
+
+    /// <summary>A short preview of the signature (its text) next to the «Изменить подпись…» button.</summary>
+    private void ShowSignature()
+    {
+        var text = MailClient.Core.Rendering.MessageHtmlBuilder.HtmlToText(MailClient.Core.Rendering.MessageSignature.Html(_account)).Trim();
+        SignatureText.Text = text.Length == 0 ? "Не задана" : text;
+    }
+
+    /// <summary>The signature is part of these settings: it is kept with «Сохранить» of this window.</summary>
+    private void EditSignature_Click(object? sender, RoutedEventArgs e)
+    {
+        _account.EmailAddress = EmailBox.Text?.Trim() ?? "";
+        if (SignatureWindow.Edit(_account, _session)) ShowSignature();
+    }
 
     private static void Select(ComboBox combo, string tag) =>
         combo.SelectedItem = combo.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == tag) ?? combo.Items.OfType<ComboBoxItem>().FirstOrDefault();
@@ -138,7 +154,6 @@ public partial class AccountWindow : Window
         a.SmtpPort = int.TryParse(SmtpPortBox.Text?.Trim(), out var sp) ? sp : 0;
         a.SmtpSecurity = Enum.TryParse<ConnectionSecurity>(TagOf(SmtpSecurityCombo), out var ssec) ? ssec : ConnectionSecurity.SslOnConnect;
         a.TrustedRootCertificatesPem = _certPem;
-        a.Signature = SignatureBox.Text ?? "";
         return a;
     }
 

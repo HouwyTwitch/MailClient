@@ -7,12 +7,6 @@
         Title="{Binding WindowTitle}" Icon="/Assets/app.ico"
         Width="940" Height="720" MinWidth="620" MinHeight="460"
         WindowStartupLocation="CenterOwner" AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">
-    <Window.Resources>
-        <DataTemplate x:Key="PaletteItem" DataType="{x:Type vm:PaletteColor}">
-            <Button Style="{StaticResource PaletteSwatch}" Background="{Binding Brush}" ToolTip="{Binding Name}"
-                    AutomationProperties.Name="{Binding Name}" Click="PaletteColor_Click"/>
-        </DataTemplate>
-    </Window.Resources>
     <Window.InputBindings>
         <KeyBinding Gesture="Ctrl+Enter" Command="{Binding SendCommand}"/>
         <KeyBinding Gesture="Alt+S" Command="{Binding SendCommand}"/>
@@ -33,6 +27,17 @@
                 <Button Style="{StaticResource ToolButton}" Tag="&#xE74E;" Content="Сохранить" Command="{Binding SaveDraftCommand}" Margin="8,0,0,0" ToolTip="Сохранить черновик (Ctrl+S)"/>
                 <Button Style="{StaticResource ToolButton}" Tag="&#xE723;" Content="Вложить файл" Click="Attach_Click"/>
                 <Button Style="{StaticResource ToolButton}" Tag="&#xE8D4;" Content="Проверить имена" Command="{Binding CheckNamesCommand}" ToolTip="Проверить имена по адресной книге (Ctrl+K)"/>
+                <Button x:Name="SignatureButton" Style="{StaticResource ToolButton}" Tag="&#xE70F;" Content="Подпись" Click="Signature_Click"
+                        ToolTip="Вставить, убрать или изменить подпись">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Вставить подпись" Click="InsertSignature_Click"/>
+                            <MenuItem Header="Убрать подпись" Click="RemoveSignature_Click"/>
+                            <Separator/>
+                            <MenuItem Header="Изменить подпись…" Click="EditSignature_Click"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
                 <CheckBox Content="Важное" IsChecked="{Binding HighImportance}" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="Высокая важность"/>
                 <CheckBox Content="Уведомить о прочтении" IsChecked="{Binding RequestReadReceipt}" Margin="12,0,0,0" VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
@@ -122,154 +127,7 @@
 
         <!-- formatting -->
         <Border x:Name="FormatBar" DockPanel.Dock="Top" Margin="14,8,14,0" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="0,0,0,5">
-            <WrapPanel>
-                <WrapPanel.Resources>
-                    <Style TargetType="Rectangle">
-                        <Setter Property="Width" Value="1"/>
-                        <Setter Property="Height" Value="18"/>
-                        <Setter Property="Margin" Value="6,0"/>
-                        <Setter Property="VerticalAlignment" Value="Center"/>
-                        <Setter Property="Fill" Value="{DynamicResource Brush.Border}"/>
-                    </Style>
-                </WrapPanel.Resources>
-
-                <ComboBox x:Name="FontCombo" Width="160" MinHeight="28" Padding="8,3,26,3" MaxDropDownHeight="380"
-                          ToolTip="Шрифт" AutomationProperties.Name="Шрифт" SelectionChanged="FontCombo_SelectionChanged">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" FontFamily="{Binding}" FontSize="13"/>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-                <ComboBox x:Name="SizeCombo" Width="66" MinHeight="28" Padding="8,3,24,3" Margin="4,0,0,0" MaxDropDownHeight="380"
-                          ItemStringFormat="{}{0:0.#}" ToolTip="Размер шрифта (пт)" AutomationProperties.Name="Размер шрифта"
-                          SelectionChanged="SizeCombo_SelectionChanged"/>
-                <Rectangle/>
-
-                <ToggleButton x:Name="BoldButton" Style="{StaticResource FormatButton}" Tag="bold" Click="Toggle_Click"
-                              ToolTip="Полужирный (Ctrl+B)" AutomationProperties.Name="Полужирный">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8DD;" FontSize="14"/>
-                </ToggleButton>
-                <ToggleButton x:Name="ItalicButton" Style="{StaticResource FormatButton}" Tag="italic" Click="Toggle_Click"
-                              ToolTip="Курсив (Ctrl+I)" AutomationProperties.Name="Курсив">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8DB;" FontSize="14"/>
-                </ToggleButton>
-                <ToggleButton x:Name="UnderlineButton" Style="{StaticResource FormatButton}" Tag="underline" Click="Toggle_Click"
-                              ToolTip="Подчёркнутый (Ctrl+U)" AutomationProperties.Name="Подчёркнутый">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8DC;" FontSize="14"/>
-                </ToggleButton>
-                <ToggleButton x:Name="StrikeButton" Style="{StaticResource FormatButton}" Tag="strikeThrough" Click="Toggle_Click"
-                              ToolTip="Зачёркнутый" AutomationProperties.Name="Зачёркнутый">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xEDE0;" FontSize="14"/>
-                </ToggleButton>
-                <Rectangle/>
-
-                <!-- text colour -->
-                <ToggleButton x:Name="ColorButton" Style="{StaticResource FormatButton}" Width="38"
-                              IsHitTestVisible="{Binding IsOpen, ElementName=ColorPopup, Converter={StaticResource InvBool}}"
-                              ToolTip="Цвет текста" AutomationProperties.Name="Цвет текста">
-                    <StackPanel Orientation="Horizontal">
-                        <Grid Width="16" Height="18">
-                            <TextBlock Style="{StaticResource Icon}" Text="&#xE8D3;" FontSize="13" VerticalAlignment="Top"/>
-                            <Rectangle x:Name="ColorSwatch" Height="3" VerticalAlignment="Bottom" Fill="#C00000" Style="{x:Null}"/>
-                        </Grid>
-                        <TextBlock Style="{StaticResource Icon}" Text="&#xE70D;" FontSize="8" Margin="3,0,0,0"/>
-                    </StackPanel>
-                </ToggleButton>
-                <Popup x:Name="ColorPopup" PlacementTarget="{Binding ElementName=ColorButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
-                       IsOpen="{Binding IsChecked, ElementName=ColorButton, Mode=TwoWay}">
-                    <Border Style="{StaticResource PalettePopup}">
-                        <StackPanel>
-                            <Button Style="{StaticResource PaletteTextButton}" Content="Автоматический" Click="ColorAuto_Click"/>
-                            <ItemsControl x:Name="ColorPalette" Style="{StaticResource Palette}" ItemTemplate="{StaticResource PaletteItem}"/>
-                        </StackPanel>
-                    </Border>
-                </Popup>
-
-                <!-- highlight -->
-                <ToggleButton x:Name="HighlightButton" Style="{StaticResource FormatButton}" Width="38"
-                              IsHitTestVisible="{Binding IsOpen, ElementName=HighlightPopup, Converter={StaticResource InvBool}}"
-                              ToolTip="Цвет выделения текста" AutomationProperties.Name="Цвет выделения текста">
-                    <StackPanel Orientation="Horizontal">
-                        <Grid Width="16" Height="18">
-                            <TextBlock Style="{StaticResource Icon}" Text="&#xE7E6;" FontSize="13" VerticalAlignment="Top"/>
-                            <Rectangle x:Name="HighlightSwatch" Height="3" VerticalAlignment="Bottom" Fill="#FFFF00" Style="{x:Null}"/>
-                        </Grid>
-                        <TextBlock Style="{StaticResource Icon}" Text="&#xE70D;" FontSize="8" Margin="3,0,0,0"/>
-                    </StackPanel>
-                </ToggleButton>
-                <Popup x:Name="HighlightPopup" PlacementTarget="{Binding ElementName=HighlightButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
-                       IsOpen="{Binding IsChecked, ElementName=HighlightButton, Mode=TwoWay}">
-                    <Border Style="{StaticResource PalettePopup}">
-                        <StackPanel>
-                            <Button Style="{StaticResource PaletteTextButton}" Content="Без выделения" Click="HighlightNone_Click"/>
-                            <ItemsControl x:Name="HighlightPalette" Style="{StaticResource Palette}" ItemTemplate="{StaticResource PaletteItem}"/>
-                        </StackPanel>
-                    </Border>
-                </Popup>
-                <Rectangle/>
-
-                <ToggleButton x:Name="AlignLeftButton" Style="{StaticResource FormatButton}" Tag="justifyLeft" Click="Toggle_Click"
-                              ToolTip="По левому краю" AutomationProperties.Name="По левому краю">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8E4;" FontSize="14"/>
-                </ToggleButton>
-                <ToggleButton x:Name="AlignCenterButton" Style="{StaticResource FormatButton}" Tag="justifyCenter" Click="Toggle_Click"
-                              ToolTip="По центру" AutomationProperties.Name="По центру">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8E3;" FontSize="14"/>
-                </ToggleButton>
-                <ToggleButton x:Name="AlignRightButton" Style="{StaticResource FormatButton}" Tag="justifyRight" Click="Toggle_Click"
-                              ToolTip="По правому краю" AutomationProperties.Name="По правому краю">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8E2;" FontSize="14"/>
-                </ToggleButton>
-                <ToggleButton x:Name="JustifyButton" Style="{StaticResource FormatButton}" Tag="justifyFull" Click="Toggle_Click"
-                              ToolTip="По ширине" AutomationProperties.Name="По ширине">
-                    <Path Style="{StaticResource PathIcon}" Data="{StaticResource Geo.Justify}"/>
-                </ToggleButton>
-                <Rectangle/>
-
-                <ToggleButton x:Name="BulletsButton" Style="{StaticResource FormatButton}" Tag="insertUnorderedList" Click="Toggle_Click"
-                              ToolTip="Маркированный список" AutomationProperties.Name="Маркированный список">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8FD;" FontSize="14"/>
-                </ToggleButton>
-                <ToggleButton x:Name="NumbersButton" Style="{StaticResource FormatButton}" Tag="insertOrderedList" Click="Toggle_Click"
-                              ToolTip="Нумерованный список" AutomationProperties.Name="Нумерованный список">
-                    <Path Style="{StaticResource PathIcon}" Data="{StaticResource Geo.NumberedList}" StrokeThickness="1.1"/>
-                </ToggleButton>
-                <Button Style="{StaticResource FormatButton}" Tag="outdent" Click="Command_Click"
-                        ToolTip="Уменьшить отступ" AutomationProperties.Name="Уменьшить отступ">
-                    <Path Style="{StaticResource PathIcon}" Data="{StaticResource Geo.Outdent}"/>
-                </Button>
-                <Button Style="{StaticResource FormatButton}" Tag="indent" Click="Command_Click"
-                        ToolTip="Увеличить отступ" AutomationProperties.Name="Увеличить отступ">
-                    <Path Style="{StaticResource PathIcon}" Data="{StaticResource Geo.Indent}"/>
-                </Button>
-                <Rectangle/>
-
-                <Button Style="{StaticResource FormatButton}" Click="Link_Click" ToolTip="Вставить ссылку" AutomationProperties.Name="Вставить ссылку">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE71B;" FontSize="14"/>
-                </Button>
-                <Button Style="{StaticResource FormatButton}" Click="Image_Click" ToolTip="Вставить изображение в текст" AutomationProperties.Name="Вставить изображение">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE91B;" FontSize="14"/>
-                </Button>
-                <Button Style="{StaticResource FormatButton}" Tag="insertHorizontalRule" Click="Command_Click"
-                        ToolTip="Горизонтальная линия" AutomationProperties.Name="Горизонтальная линия">
-                    <Path Style="{StaticResource PathIcon}" Data="{StaticResource Geo.HorizontalRule}"/>
-                </Button>
-                <Rectangle/>
-
-                <Button x:Name="UndoButton" Style="{StaticResource FormatButton}" Tag="undo" Click="Command_Click"
-                        ToolTip="Отменить (Ctrl+Z)" AutomationProperties.Name="Отменить">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE7A7;" FontSize="14"/>
-                </Button>
-                <Button x:Name="RedoButton" Style="{StaticResource FormatButton}" Tag="redo" Click="Command_Click"
-                        ToolTip="Повторить (Ctrl+Y)" AutomationProperties.Name="Повторить">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE7A6;" FontSize="14"/>
-                </Button>
-                <Button Style="{StaticResource FormatButton}" Tag="removeFormat" Click="Command_Click"
-                        ToolTip="Очистить форматирование" AutomationProperties.Name="Очистить форматирование">
-                    <TextBlock Style="{StaticResource Icon}" Text="&#xE75C;" FontSize="14"/>
-                </Button>
-            </WrapPanel>
+            <ctl:FormattingBar x:Name="Formatting"/>
         </Border>
 
         <TextBlock DockPanel.Dock="Bottom" Text="{Binding QuoteNote}" Style="{StaticResource Caption}" Margin="16,6"

@@ -20,6 +20,16 @@
                 <Button Classes="tool" Content="Сохранить черновик" Command="{Binding SaveDraftCommand}" ToolTip.Tip="Ctrl+S"/>
                 <Button Classes="tool" Content="Вложить файл…" Click="Attach_Click"/>
                 <Button Classes="tool" Content="Проверить имена" Command="{Binding CheckNamesCommand}" ToolTip.Tip="Ctrl+K"/>
+                <Button Classes="tool" Content="Подпись ▾" ToolTip.Tip="Вставить, убрать или изменить подпись">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Вставить подпись" Click="InsertSignature_Click"/>
+                            <MenuItem Header="Убрать подпись" Click="RemoveSignature_Click"/>
+                            <Separator/>
+                            <MenuItem Header="Изменить подпись…" Click="EditSignature_Click"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
                 <ToggleButton Classes="tool" Content="! Важное" IsChecked="{Binding HighImportance}" ToolTip.Tip="Высокая важность"/>
                 <CheckBox Content="Уведомление о прочтении" IsChecked="{Binding RequestReadReceipt}" Margin="8,0,0,0"/>
             </StackPanel>

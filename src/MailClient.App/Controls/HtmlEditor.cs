@@ -165,6 +165,19 @@ public sealed class HtmlEditor : UserControl, IDisposable
 
     public Task InsertImageAsync(string dataUrl) => RunAsync("insertImage", dataUrl);
 
+    /// <summary>
+    /// Puts the signature at the end of the text or replaces the one there; "" removes it. With
+    /// <paramref name="onlyIfPresent"/> a text without a signature stays as it is.
+    /// </summary>
+    public async Task SetSignatureAsync(string html, bool onlyIfPresent = false)
+    {
+        if (await RunAsync("setSignature", html, onlyIfPresent)) return;
+        // Plain-text fallback: the signature goes at the end once.
+        var text = Core.Rendering.MessageHtmlBuilder.HtmlToText(html).Trim();
+        if (!onlyIfPresent && text.Length > 0 && !_plain.Text.Contains(text, StringComparison.Ordinal))
+            _plain.Text = _plain.Text.TrimEnd() + Environment.NewLine + Environment.NewLine + text;
+    }
+
     /// <summary>Returns keyboard focus to the text, keeping the selection (after a toolbar action).</summary>
     public async Task FocusAsync()
     {

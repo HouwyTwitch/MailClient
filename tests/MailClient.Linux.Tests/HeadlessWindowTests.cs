@@ -79,4 +79,64 @@ public sealed class HeadlessWindowTests
         vm.IsDirty = false;
         window.Close();
     }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public Task Folder_counter_includes_its_subfolders() => Session.Dispatch(() =>
+    {
+        var account = new AccountSettings { Protocol = MailProtocol.Imap, EmailAddress = "ivanov@company.ru", ImapHost = "127.0.0.1", SmtpHost = "127.0.0.1" };
+        using var session = new AccountSession(account, new CredentialProvider(new LinuxSecretStore()));
+        FolderNodeViewModel Node(FolderNodeViewModel? parent, string id, int unread, WellKnownFolder wk = WellKnownFolder.None)
+        {
+            var node = new FolderNodeViewModel(session, new MailFolder { Id = id, DisplayName = id, UnreadCount = unread, WellKnown = wk }, parent == null)
+            {
+                Parent = parent,
+            };
+            parent?.Children.Add(node);
+            return node;
+        }
+        var root = Node(null, "root", 0);
+        var inbox = Node(root, "Входящие", 2, WellKnownFolder.Inbox);
+        var projects = Node(inbox, "Проекты", 3);
+        var archive = Node(projects, "Архив", 1);
+        var deleted = Node(root, "Удалённые", 5, WellKnownFolder.DeletedItems);
+        Node(deleted, "Старое", 2);
+
+        Assert.Equal(6, inbox.BadgeCount);
+        Assert.Equal(4, projects.BadgeCount);
+        Assert.Equal("Непрочитанных: 6 (в этой папке — 2, в подпапках — 4)", inbox.BadgeTip);
+        Assert.False(deleted.HasUnread);          // Deleted Items never shows a counter...
+        Assert.Equal(6, root.BadgeCount);         // ...nor adds to the account's
+
+        archive.Unread = 0;                       // read in the subfolder: every parent follows
+        Assert.Equal(5, inbox.BadgeCount);
+        Assert.Equal(5, root.BadgeCount);
+    }, TestContext.Current.CancellationToken);
+
+    [Fact]
+    public Task Signature_goes_into_a_new_message_and_its_editor_opens() => Session.Dispatch(async () =>
+    {
+        var account = new AccountSettings
+        {
+            Protocol = MailProtocol.Imap, EmailAddress = "ivanov@company.ru", ImapHost = "127.0.0.1", SmtpHost = "127.0.0.1",
+            SignatureHtml = "<div><b>Иванов Иван</b></div><div>Отдел АСУ</div>",
+        };
+        using var session = new AccountSession(account, new CredentialProvider(new LinuxSecretStore()));
+        var vm = ComposeViewModel.New([session], session);
+        var window = new ComposeWindow(vm, new AppSettings());
+        window.Show();
+        var editor = window.GetVisualDescendants().OfType<HtmlEditor>().Single();
+        await editor.SetHtmlAsync(vm.InitialHtml);
+        var (body, _) = await vm.GetBody!();
+        Assert.Contains("Иванов Иван", body, StringComparison.Ordinal);
+        Assert.Contains("Отдел АСУ", body, StringComparison.Ordinal);
+        vm.IsDirty = false;
+        window.Close();
+
+        var signature = new SignatureWindow(account, session);
+        signature.Show();
+        Assert.Equal("Подпись — ivanov@company.ru", signature.Title);
+        Assert.Contains(signature.GetVisualDescendants().OfType<Button>(), b => (b.Content as string) == "Заполнить из адресной книги");
+        Assert.DoesNotContain(signature.GetVisualDescendants().OfType<Button>(), b => (b.Content as string) == "Взять из Outlook в Интернете" && b.IsVisible);
+        signature.Close();
+    }, TestContext.Current.CancellationToken);
 }

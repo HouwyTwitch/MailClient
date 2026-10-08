@@ -184,7 +184,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void EditAccount(AccountSession session)
     {
         var copy = session.Settings.Clone();
-        if (WindowFactory.EditAccount(copy, _credentials, isNew: false) != true) return;
+        if (WindowFactory.EditAccount(copy, _credentials, isNew: false, session) != true) return;
         var index = _settings.Accounts.FindIndex(a => a.Id == copy.Id);
         if (index >= 0) _settings.Accounts[index] = copy;
         SettingsStore.Save(_settings);
@@ -410,15 +410,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void UpdateUnreadTotals()
     {
+        // The Inbox counter, subfolders included (mail filed there by rules is new mail too).
         var inboxUnread = Roots.SelectMany(r => r.SelfAndDescendants())
-            .Where(n => n.Folder.WellKnown == WellKnownFolder.Inbox).Sum(n => n.Unread);
+            .Where(n => n.Folder.WellKnown == WellKnownFolder.Inbox).Sum(n => n.BadgeCount);
         Tray?.SetUnread(inboxUnread);
         UpdateTitle(inboxUnread);
     }
 
     private void UpdateTitle(int? inboxUnread = null)
     {
-        inboxUnread ??= Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => n.Folder.WellKnown == WellKnownFolder.Inbox).Sum(n => n.Unread);
+        inboxUnread ??= Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => n.Folder.WellKnown == WellKnownFolder.Inbox).Sum(n => n.BadgeCount);
         var folder = SelectedFolder is { IsAccountRoot: false } f ? f.Name + " — " : "";
         WindowTitle = $"{folder}Корпоративная почта" + (inboxUnread > 0 ? $" ({inboxUnread})" : "");
     }
@@ -531,11 +532,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (changed.Count == 0) return;
         foreach (var i in changed) i.IsRead = read;
         folder.Unread = Math.Max(0, folder.Unread + (read ? -changed.Count : changed.Count));
-        folder.Session.Cache.SetReadState(changed.Select(i => i.Id), read);
+        // Without a connection the change waits in the cache and goes to the server with the next synchronization:
+        // no error message for every message read offline, and the message does not turn unread again.
+        var sent = folder.Session.Sync.SetReadStateAsync(changed.Select(i => i.Id).ToList(), read);
         SettleUnread(folder);
         UpdateUnreadTotals();
-        await RunAsync("Не удалось изменить состояние «прочитано»",
-            () => folder.Session.Provider.SetReadStateAsync(changed.Select(i => i.Id), read));
+        await RunAsync("Не удалось изменить состояние «прочитано»", () => sent);
     }
 
     /// <summary>
@@ -1016,6 +1018,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     // ================================================================== dialogs
+
+    /// <summary>The signature of the current account; takes effect in the next message, no reconnection needed.</summary>
+    [RelayCommand]
+    private void EditSignature()
+    {
+        if (CurrentSession is not { } s)
+        {
+            AddAccount();
+            return;
+        }
+        var copy = s.Settings.Clone();
+        if (WindowFactory.EditSignature(copy, s) != true) return;
+        foreach (var account in _settings.Accounts.Where(a => a.Id == copy.Id).Append(s.Settings).Distinct())
+            account.CopySignatureFrom(copy);
+        SettingsStore.Save(_settings);
+        StatusText = "Подпись сохранена";
+    }
 
     [RelayCommand]
     private void OpenOutOfOffice()

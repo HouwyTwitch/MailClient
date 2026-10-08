@@ -64,6 +64,7 @@ public sealed class LocalCache
                 DROP TABLE IF EXISTS folders;
                 DROP TABLE IF EXISTS messages;
                 DROP TABLE IF EXISTS bodies;
+                DROP TABLE IF EXISTS pending_read;
                 CREATE TABLE folders(
                     id TEXT PRIMARY KEY, change_key TEXT, parent_id TEXT, name TEXT NOT NULL,
                     folder_class TEXT, total INTEGER, unread INTEGER, child_count INTEGER,
@@ -79,6 +80,8 @@ public sealed class LocalCache
                 """);
             Exec(c, $"PRAGMA user_version={SchemaVersion};");
         }
+        // Read states set while the server could not be reached, sent with the next synchronization.
+        Exec(c, "CREATE TABLE IF NOT EXISTS pending_read(id TEXT PRIMARY KEY, is_read INTEGER NOT NULL);");
         long bodyFormat = (long)(new SqliteCommand("PRAGMA application_id;", c).ExecuteScalar() ?? 0L);
         if (bodyFormat != BodyFormatVersion)
         {
@@ -253,9 +256,10 @@ public sealed class LocalCache
             cmd.CommandText = """
                 INSERT INTO messages(id, folder_id, change_key, subject, from_name, from_addr, display_to, display_cc,
                     received, sent, is_read, has_att, importance, flag, size, preview, item_class, conversation_id, categories)
-                VALUES($id,$f,$ck,$s,$fn,$fa,$dt,$dc,$r,$se,$ir,$ha,$im,$fl,$sz,$pv,$ic,$cv,$cat)
+                VALUES($id,$f,$ck,$s,$fn,$fa,$dt,$dc,$r,$se,COALESCE((SELECT is_read FROM pending_read WHERE id=$id),$ir),$ha,$im,$fl,$sz,$pv,$ic,$cv,$cat)
                 ON CONFLICT(id) DO UPDATE SET folder_id=$f, change_key=$ck, subject=$s, from_name=$fn, from_addr=$fa,
-                    display_to=$dt, display_cc=$dc, received=$r, sent=$se, is_read=$ir, has_att=$ha, importance=$im,
+                    display_to=$dt, display_cc=$dc, received=$r, sent=$se,
+                    is_read=COALESCE((SELECT is_read FROM pending_read WHERE id=$id),$ir), has_att=$ha, importance=$im,
                     flag=$fl, size=$sz, preview=$pv, item_class=$ic, conversation_id=$cv, categories=$cat
                 """;
             cmd.Parameters.AddWithValue("$id", m.Id);
@@ -289,7 +293,7 @@ public sealed class LocalCache
         foreach (var id in ids)
         {
             using var cmd = c.CreateCommand();
-            cmd.CommandText = "DELETE FROM messages WHERE id=$id; DELETE FROM bodies WHERE id=$id;";
+            cmd.CommandText = "DELETE FROM messages WHERE id=$id; DELETE FROM bodies WHERE id=$id; DELETE FROM pending_read WHERE id=$id;";
             cmd.Parameters.AddWithValue("$id", id);
             cmd.ExecuteNonQuery();
         }
@@ -307,6 +311,68 @@ public sealed class LocalCache
 
     public void SetReadState(IEnumerable<string> ids, bool isRead) =>
         UpdateColumn(ids, "is_read", isRead ? 1 : 0);
+
+    /// <summary>A read state reported by the server; messages with a change of their own still on its way keep it.</summary>
+    public void ApplyServerReadState(IEnumerable<string> ids, bool isRead)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "UPDATE messages SET is_read=$v WHERE id=$id AND NOT EXISTS (SELECT 1 FROM pending_read WHERE id=$id)";
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.Parameters.AddWithValue("$v", isRead ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
+
+    /// <summary>
+    /// Remembers read states that still have to reach the server. Until then synchronization does not overwrite
+    /// them, so a message read without a connection does not turn unread again.
+    /// </summary>
+    public void QueueReadState(IEnumerable<string> ids, bool isRead)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "INSERT INTO pending_read(id, is_read) VALUES($id,$v) ON CONFLICT(id) DO UPDATE SET is_read=$v";
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.Parameters.AddWithValue("$v", isRead ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
+
+    public IReadOnlyList<(string Id, bool IsRead)> GetPendingReadStates()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT id, is_read FROM pending_read";
+        using var r = cmd.ExecuteReader();
+        var list = new List<(string, bool)>();
+        while (r.Read()) list.Add((r.GetString(0), r.GetInt32(1) != 0));
+        return list;
+    }
+
+    /// <summary>Forgets queued read states that reached the server (unless the user changed them again meanwhile).</summary>
+    public void CompletePendingReadStates(IEnumerable<string> ids, bool isRead)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids)
+        {
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "DELETE FROM pending_read WHERE id=$id AND is_read=$v";
+            cmd.Parameters.AddWithValue("$id", id);
+            cmd.Parameters.AddWithValue("$v", isRead ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
 
     public void SetFlag(IEnumerable<string> ids, FlagStatus flag) =>
         UpdateColumn(ids, "flag", (int)flag);

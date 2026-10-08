@@ -35,6 +35,7 @@ public static class SupportBundle
                     if (a["TrustedRootCertificatesPem"] is JsonValue pem && pem.ToString().Length > 0)
                         a["TrustedRootCertificatesPem"] = "(задан)";
                     a.Remove("Signature");
+                    a.Remove("SignatureHtml");
                 }
             if (node is JsonObject root) root.Remove("TrustedSenders");
             Write(zip, "settings.json", node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "");

@@ -11,6 +11,7 @@ namespace MailClient.Linux.Views;
 public partial class ComposeWindow : Window
 {
     private readonly ComposeViewModel _vm;
+    private readonly AppSettings _settings;
     private bool _closeConfirmed;
     private bool _updatingFormat;
 
@@ -20,8 +21,10 @@ public partial class ComposeWindow : Window
     {
         InitializeComponent();
         _vm = vm;
+        _settings = settings;
         DataContext = vm;
         if (vm == null) return;
+        vm.SignatureChangeRequested += async (_, html) => await Editor.SetSignatureAsync(html, onlyIfPresent: true);
         vm.GetBody = async () => (await Editor.GetContentAsync(), Editor.IsHtml);
         vm.CloseRequested += (_, _) =>
         {
@@ -75,6 +78,32 @@ public partial class ComposeWindow : Window
             _closeConfirmed = true;
             Close();
         });
+    }
+
+    private async void InsertSignature_Click(object? sender, RoutedEventArgs e)
+    {
+        var html = MailClient.Core.Rendering.MessageSignature.Html(_vm.SelectedSession.Settings);
+        if (html.Length == 0)
+        {
+            EditSignature_Click(sender, e);
+            return;
+        }
+        await Editor.SetSignatureAsync(html);
+    }
+
+    private async void RemoveSignature_Click(object? sender, RoutedEventArgs e) => await Editor.SetSignatureAsync("");
+
+    /// <summary>Changes the signature of the sending account (saved in its settings) and puts the new one into this message.</summary>
+    private async void EditSignature_Click(object? sender, RoutedEventArgs e)
+    {
+        await Task.Yield(); // let the menu close before the dialog opens
+        var session = _vm.SelectedSession;
+        var copy = session.Settings.Clone();
+        if (!SignatureWindow.Edit(copy, session)) return;
+        foreach (var account in _settings.Accounts.Where(a => a.Id == copy.Id).Append(session.Settings).Distinct())
+            account.CopySignatureFrom(copy);
+        SettingsStore.Save(_settings);
+        await Editor.SetSignatureAsync(copy.SignatureHtml);
     }
 
     private void Attach_Click(object? sender, RoutedEventArgs e)

@@ -138,6 +138,24 @@ public sealed class HtmlEditor : ContentControl
 
     public Task SetFontSizeAsync(double sizePt) => RunAsync("setFontSize", sizePt);
 
+    /// <summary>
+    /// Puts the signature at the end of the text or replaces the one there; "" removes it. With
+    /// <paramref name="onlyIfPresent"/> a text without a signature stays as it is.
+    /// </summary>
+    public async Task SetSignatureAsync(string html, bool onlyIfPresent = false)
+    {
+        if (await _ready.Task)
+        {
+            await RunAsync("setSignature", html, onlyIfPresent);
+            return;
+        }
+        // Plain-text mode: the signature goes at the end once.
+        var text = Core.Rendering.MessageHtmlBuilder.HtmlToText(html).Trim();
+        var current = _plain.Text ?? "";
+        if (!onlyIfPresent && text.Length > 0 && !current.Contains(text, StringComparison.Ordinal))
+            _plain.Text = current.TrimEnd() + Environment.NewLine + Environment.NewLine + text;
+    }
+
     public async Task FocusEditorAsync()
     {
         if (!await _ready.Task)

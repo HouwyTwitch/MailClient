@@ -159,6 +159,32 @@
 
   function insertImage(dataUrl) { exec('insertImage', dataUrl); }
 
+  /**
+   * Puts the signature at the end of the text, or replaces the one already there (another sender account was
+   * chosen). An empty signature removes it. With onlyIfPresent a message without a signature is left alone.
+   */
+  function setSignature(html, onlyIfPresent) {
+    let sig = document.getElementById('mc-signature');
+    if (!sig && (onlyIfPresent || !html)) return;
+    if (!html) {
+      sig.remove();
+    } else {
+      if (!sig) {
+        const last = ed.lastElementChild;
+        if (!last || last.textContent.trim() || last.querySelector('img')) {
+          const blank = document.createElement('p');
+          blank.innerHTML = '<br>';
+          ed.appendChild(blank);
+        }
+        sig = document.createElement('div');
+        sig.id = 'mc-signature';
+        ed.appendChild(sig);
+      }
+      sig.innerHTML = html;
+    }
+    changed();
+  }
+
   function setDark(dark) { document.body.classList.toggle('dark', dark); }
 
   function focusStart() {

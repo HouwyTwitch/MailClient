@@ -320,6 +320,56 @@ public sealed class SyncEngineTests : IDisposable
         Assert.True(byId["u2"].IsRead);
     }
 
+    /// <summary>A network that can be switched off: every request then fails like a dropped connection.</summary>
+    private sealed class Network(FakeEws server) : HttpMessageHandler
+    {
+        public bool Down { get; set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Down
+                ? throw new HttpRequestException("An error occurred while sending the request.", new IOException("connection reset"))
+                : new HttpMessageInvoker(server).SendAsync(request, ct);
+    }
+
+    [Fact]
+    public async Task Message_read_without_a_connection_stays_read_and_reaches_the_server_later()
+    {
+        var fake = new FakeEws()
+            .On("SyncFolderItems", FakeEws.Response("SyncFolderItems", FakeEws.Success("SyncFolderItems",
+                $"<m:SyncState>S1</m:SyncState><m:IncludesLastItemInRange>true</m:IncludesLastItemInRange><m:Changes><t:Create>{Item("r1", false)}</t:Create></m:Changes>")))
+            // The server has not seen the change yet and still reports the message unread.
+            .On("SyncFolderItems", FakeEws.Response("SyncFolderItems", FakeEws.Success("SyncFolderItems",
+                "<m:SyncState>S2</m:SyncState><m:IncludesLastItemInRange>true</m:IncludesLastItemInRange><m:Changes>" +
+                $"<t:Update>{Item("r1", false)}</t:Update><t:ReadFlagChange><t:ItemId Id=\"r1\"/><t:IsRead>false</t:IsRead></t:ReadFlagChange>" +
+                "</m:Changes>")))
+            .On("UpdateItem", FakeEws.Response("UpdateItem", FakeEws.Success("UpdateItem")));
+        fake.ServeItems(Store);
+        var network = new Network(fake);
+        using var provider = new MailClient.Exchange.Ews.ExchangeProvider(FakeEws.Account(), new HttpClient(network));
+        provider.Transport.NetworkRetryDelay = _ => TimeSpan.Zero;
+        var cache = new LocalCache(_path);
+        cache.ReplaceFolders(new[] { new MailFolder { Id = "F", DisplayName = "Inbox" } });
+        var engine = new SyncEngine(provider, cache);
+        await engine.SyncFolderAsync("F", TestContext.Current.CancellationToken);
+
+        network.Down = true;
+        Assert.False(await engine.SetReadStateAsync(["r1"], true, TestContext.Current.CancellationToken));
+        Assert.Empty(fake.All("UpdateItem"));
+        network.Down = false;
+        await engine.SyncFolderAsync("F", TestContext.Current.CancellationToken);
+        Assert.True(cache.GetMessages("F", 0, 10).Single().IsRead);   // not turned unread by the stale server state
+
+        Assert.Equal(1, await engine.SendPendingChangesAsync(TestContext.Current.CancellationToken));
+        var update = fake.Last("UpdateItem");
+        Assert.Equal("r1", update.Descendants(FakeEws.T + "ItemId").Single().Attribute("Id")!.Value);
+        Assert.Equal("true", update.Descendants(FakeEws.T + "IsRead").Single().Value);
+        Assert.Empty(cache.GetPendingReadStates());
+        Assert.Equal(0, await engine.SendPendingChangesAsync(TestContext.Current.CancellationToken));
+
+        // Once delivered, the server is in charge again: marked unread elsewhere, unread here.
+        cache.ApplyServerReadState(["r1"], false);
+        Assert.False(cache.GetMessages("F", 0, 10).Single().IsRead);
+    }
+
     [Fact]
     public async Task Invalid_sync_state_triggers_full_resync()
     {
@@ -339,6 +389,45 @@ public sealed class SyncEngineTests : IDisposable
         Assert.Equal("NEW", cache.GetSyncState("F"));
         Assert.Equal(new[] { "z" }, cache.GetMessages("F", 0, 10).Select(m => m.Id));
         Assert.Null(fake.Last("SyncFolderItems").Element(FakeEws.M + "SyncState"));
+    }
+}
+
+public class SignatureTests
+{
+    [Fact]
+    public void Signature_is_added_according_to_the_account_settings()
+    {
+        var account = new AccountSettings { SignatureHtml = "<div>Иванов</div>", SignatureOnNew = true, SignatureOnReply = false };
+
+        Assert.Equal("<div>Иванов</div>", MessageSignature.For(account, ComposeAction.New));
+        Assert.Equal("", MessageSignature.For(account, ComposeAction.Reply));
+        Assert.Equal("", MessageSignature.For(account, ComposeAction.EditDraft));   // a draft already has its text
+        Assert.Equal("<p><br></p><p><br></p><div id=\"mc-signature\"><div>Иванов</div></div>", MessageSignature.InitialBody("<div>Иванов</div>"));
+        Assert.Equal("<p><br></p>", MessageSignature.InitialBody(""));
+    }
+
+    [Fact]
+    public void Plain_text_signature_of_older_versions_becomes_html_lines()
+    {
+        var account = new AccountSettings { Signature = "С уважением,\r\nИванов <ivanov@test.ru>\r\n\r\nООО «Ромашка»" };
+
+        Assert.Equal("<div>С уважением,</div><div>Иванов &lt;ivanov@test.ru&gt;</div><div><br></div><div>ООО «Ромашка»</div>",
+            MessageSignature.Html(account));
+    }
+
+    [Fact]
+    public void Signature_from_the_address_book_skips_empty_fields()
+    {
+        var contact = new Contact
+        {
+            DisplayName = "Иванов Иван Иванович", JobTitle = "Инженер", Department = "Отдел <АСУ>",
+            BusinessPhone = "+7 495 123-45-67", EmailAddresses = { "ivanov@test.ru" },
+        };
+
+        var html = MessageSignature.FromContact(contact, "other@test.ru");
+
+        Assert.Equal("<div>С уважением,</div><div><b>Иванов Иван Иванович</b></div><div>Инженер, Отдел &lt;АСУ&gt;</div>" +
+                     "<div>тел.: +7 495 123-45-67</div><div><a href=\"mailto:ivanov@test.ru\">ivanov@test.ru</a></div>", html);
     }
 }
 

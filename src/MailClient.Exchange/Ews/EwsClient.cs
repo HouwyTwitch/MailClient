@@ -44,8 +44,10 @@ public sealed class EwsResponseException : MailServiceException
 /// Low-level EWS SOAP transport: wraps operations in an envelope, posts them, handles SOAP faults, HTTP
 /// errors and server throttling: a limited number of requests in flight per account (Exchange throttles
 /// clients that open many parallel connections), one shared back-off for everybody when the server throttles (ErrorServerBusy),
-/// and transparent retries of read-only operations when a connection drops (proxies and load balancers
-/// in front of Exchange routinely close idle or long-running connections).
+/// and transparent retries of operations that can safely run twice when a connection drops (proxies,
+/// firewalls and load balancers in front of Exchange routinely cut idle or long-running connections).
+/// Operations that must not run twice (sending, creating items) are preceded by a connection check after a
+/// pause, so they do not go out on a connection the network has silently dropped meanwhile.
 /// </summary>
 public sealed class EwsClient : IDisposable
 {
@@ -56,8 +58,43 @@ public sealed class EwsClient : IDisposable
     {
         "GetFolder", "FindFolder", "SyncFolderHierarchy", "FindItem", "GetItem", "SyncFolderItems",
         "GetAttachment", "ResolveNames", "GetUserOofSettingsRequest", "ExpandDL", "GetUserAvailabilityRequest",
-        "GetInboxRules",
+        "GetInboxRules", "GetUserConfiguration",
     };
+
+    /// <summary>
+    /// Changes that end in the same state when applied twice: setting fields with AlwaysOverwrite (read state,
+    /// flags, a folder name, out-of-office), marking a folder read, emptying a folder, and deleting or moving items
+    /// (a repeated call finds the items gone, which callers already accept).
+    /// </summary>
+    private static readonly HashSet<string> RepeatableChanges = new()
+    {
+        "UpdateItem", "MarkAllItemsAsRead", "UpdateFolder", "SetUserOofSettingsRequest", "EmptyFolder", "DeleteItem", "MoveItem",
+    };
+
+    /// <summary>Codes with which Exchange asks the client to slow down; the request is repeated after a pause.</summary>
+    private static readonly HashSet<string> ThrottlingCodes = new()
+    {
+        "ErrorServerBusy", "ErrorExceededConnectionCount", "ErrorTooManyObjectsOpened",
+    };
+
+    /// <summary>A tiny request that proves the connection is alive (and signed in) before a change that must not run twice.</summary>
+    private static XElement ConnectionCheck() =>
+        new(M + "GetFolder",
+            new XElement(M + "FolderShape", new XElement(T + "BaseShape", "IdOnly")),
+            new XElement(M + "FolderIds", new XElement(T + "DistinguishedFolderId", new XAttribute("Id", "msgfolderroot"))));
+
+    /// <summary>
+    /// Whether an operation may simply be sent again after the connection dropped: reads always, changes only
+    /// when a second run leaves the same result, never anything that sends mail or creates items.
+    /// </summary>
+    internal static bool CanRepeat(XElement operation)
+    {
+        var name = operation.Name.LocalName;
+        if (IdempotentOperations.Contains(name)) return true;
+        if (!RepeatableChanges.Contains(name)) return false;
+        var disposition = (string?)operation.Attribute("MessageDisposition") ?? "";
+        return !disposition.Contains("Send", StringComparison.Ordinal);
+    }
 
     private readonly HttpClient _http;
     private readonly Uri _endpoint;
@@ -66,6 +103,7 @@ public sealed class EwsClient : IDisposable
     private readonly SemaphoreSlim _inFlight;
     private readonly object _throttleSync = new();
     private DateTime _pausedUntilUtc = DateTime.MinValue;
+    private long _lastResponseTicks;
 
     public EwsClient(HttpClient http, Uri endpoint, string requestServerVersion, int maxRetries = 3, int maxConcurrentRequests = 4)
     {
@@ -81,6 +119,19 @@ public sealed class EwsClient : IDisposable
 
     /// <summary>Delay applied by the network retry (tests shorten it).</summary>
     internal Func<int, TimeSpan> NetworkRetryDelay { get; set; } = attempt => TimeSpan.FromSeconds(attempt == 0 ? 1 : 4);
+
+    /// <summary>
+    /// After this much silence an operation that must not run twice is preceded by a connection check: firewalls
+    /// and load balancers drop idle connections without telling the client, and the first request on such a
+    /// connection fails after it may already have been sent.
+    /// </summary>
+    internal TimeSpan CheckConnectionAfterIdle { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Pause after a throttling response that does not say how long to wait.</summary>
+    internal TimeSpan ThrottlingPause { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Time source (tests move it forward).</summary>
+    internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
 
     /// <summary>Sends an operation and returns the operation response element (first child of soap:Body).</summary>
     /// <param name="operation">The operation element (m:GetItem, m:CreateItem…).</param>
@@ -106,7 +157,25 @@ public sealed class EwsClient : IDisposable
                 new XElement(Soap + "Body", operation)));
         var payload = Serialize(envelope);
         var name = operation.Name.LocalName;
-        bool idempotent = IdempotentOperations.Contains(name);
+        bool idempotent = CanRepeat(operation);
+
+        if (!idempotent)
+        {
+            var last = Interlocked.Read(ref _lastResponseTicks);
+            if (last != 0 && UtcNow() - new DateTime(last, DateTimeKind.Utc) > CheckConnectionAfterIdle)
+            {
+                // A repeatable request goes first: if the connection has been dropped it fails and is repeated on a
+                // new one, which then carries this operation. Nothing has been sent yet if even that fails.
+                try
+                {
+                    await SendAsync(ConnectionCheck(), ct, requestVersion: requestVersion).ConfigureAwait(false);
+                }
+                catch (MailConnectionException ex)
+                {
+                    throw new MailConnectionException($"Нет связи с сервером Exchange {_endpoint.Host}, запрос {name} не отправлен: {ex.Message}", ex);
+                }
+            }
+        }
 
         int busyRetries = 0, networkRetries = 0;
         while (true)
@@ -131,7 +200,7 @@ public sealed class EwsClient : IDisposable
                     throw new EwsResponseException("ErrorServerBusy", "Server busy");
                 // One shared pause for all requests of this account, not a stampede of retries.
                 PauseAll(backoff);
-                MailLog.Warn?.Invoke($"EWS {name}: сервер ограничивает частоту запросов (ErrorServerBusy), пауза {backoff.TotalSeconds:0.#} с");
+                MailLog.Warn?.Invoke($"EWS {name}: сервер просит снизить частоту запросов, пауза {backoff.TotalSeconds:0.#} с");
                 continue;
             }
 
@@ -227,6 +296,7 @@ public sealed class EwsClient : IDisposable
                 throw new MailServiceException($"Непредвиденный ответ сервера (HTTP {(int)response.StatusCode} {response.ReasonPhrase}).", ((int)response.StatusCode).ToString(CultureInfo.InvariantCulture));
             }
 
+            Interlocked.Exchange(ref _lastResponseTicks, UtcNow().Ticks);
             var serverVersion = doc.Root?.Element(Soap + "Header")?.Element(T + "ServerVersionInfo");
             if (serverVersion != null)
             {
@@ -242,7 +312,7 @@ public sealed class EwsClient : IDisposable
                            ?? fault.Descendants().FirstOrDefault(e => e.Name.LocalName == "ResponseCode")?.Value
                            ?? fault.Element("faultcode")?.Value ?? "SoapFault";
                 var text = fault.Element("faultstring")?.Value ?? "SOAP fault";
-                if (code.EndsWith("ErrorServerBusy", StringComparison.Ordinal))
+                if (ThrottlingCodes.Contains(code[(code.IndexOf(':') + 1)..]))
                 {
                     var hint = fault.Descendants().FirstOrDefault(e =>
                         e.Name.LocalName == "Value" && (string?)e.Attribute("Name") == "BackOffMilliseconds")?.Value;
@@ -259,7 +329,7 @@ public sealed class EwsClient : IDisposable
             // BackOffMilliseconds the server puts into MessageXml. When only part of a batch was throttled the
             // rest has already been executed, so only idempotent operations may be repeated as a whole.
             var codes = result.Descendants(M + "ResponseCode").ToList();
-            var busyCodes = codes.Where(c => c.Value == "ErrorServerBusy").ToList();
+            var busyCodes = codes.Where(c => ThrottlingCodes.Contains(c.Value)).ToList();
             if (busyCodes.Count > 0 && (busyCodes.Count == codes.Count || IdempotentOperations.Contains(name)))
             {
                 var hint = busyCodes.Select(c => c.Parent?.Element(M + "MessageXml")).Where(x => x != null)
@@ -298,10 +368,10 @@ public sealed class EwsClient : IDisposable
         throw new EwsResponseException(code, text);
     }
 
-    private static TimeSpan Backoff(string? serverHintMs) =>
+    private TimeSpan Backoff(string? serverHintMs) =>
         int.TryParse(serverHintMs, out var ms) && ms > 0
             ? TimeSpan.FromMilliseconds(Math.Min(ms, 60_000))
-            : TimeSpan.FromSeconds(5);
+            : ThrottlingPause;
 
     private static byte[] Serialize(XDocument doc)
     {

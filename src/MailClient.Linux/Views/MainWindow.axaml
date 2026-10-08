@@ -32,6 +32,7 @@
                             <MenuFlyout>
                                 <MenuItem Header="Добавить учётную запись…" Command="{Binding AddAccountCommand}"/>
                                 <MenuItem Header="Настройки учётной записи…" Command="{Binding EditCurrentAccountCommand}"/>
+                                <MenuItem Header="Подпись…" Command="{Binding EditSignatureCommand}"/>
                                 <MenuItem Header="Удалить учётную запись…" Command="{Binding RemoveCurrentAccountCommand}"/>
                                 <Separator/>
                                 <MenuItem Header="Открыть папку журналов" Command="{Binding OpenLogsCommand}"/>
@@ -82,8 +83,9 @@
                 <TreeView.ItemTemplate>
                     <TreeDataTemplate DataType="shared:FolderNodeViewModel" ItemsSource="{Binding Children}">
                         <DockPanel>
-                            <Border DockPanel.Dock="Right" Classes="badge" IsVisible="{Binding HasUnread}" Margin="8,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding Unread}" FontSize="11" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Border DockPanel.Dock="Right" Classes="badge" IsVisible="{Binding HasUnread}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                    ToolTip.Tip="{Binding BadgeTip}">
+                                <TextBlock Text="{Binding BadgeCount}" FontSize="11" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </DockPanel>

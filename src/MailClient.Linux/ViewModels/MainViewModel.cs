@@ -144,7 +144,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void EditAccount(AccountSession session)
     {
         var copy = session.Settings.Clone();
-        if (!Views.AccountWindow.Edit(copy, _credentials, isNew: false)) return;
+        if (!Views.AccountWindow.Edit(copy, _credentials, isNew: false, session)) return;
         var index = _settings.Accounts.FindIndex(a => a.Id == copy.Id);
         if (index >= 0) _settings.Accounts[index] = copy;
         SettingsStore.Save(_settings);
@@ -155,6 +155,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _sessions.Remove(fresh);
         _sessions.Insert(Math.Max(0, position), fresh);
         RebuildTree();
+    }
+
+    /// <summary>The signature of the current account; takes effect in the next message, no reconnection needed.</summary>
+    [RelayCommand]
+    private void EditSignature()
+    {
+        if (CurrentSession is not { } s) return;
+        var copy = s.Settings.Clone();
+        if (!Views.SignatureWindow.Edit(copy, s)) return;
+        foreach (var account in _settings.Accounts.Where(a => a.Id == copy.Id).Append(s.Settings).Distinct())
+            account.CopySignatureFrom(copy);
+        SettingsStore.Save(_settings);
+        StatusText = "Подпись сохранена";
     }
 
     [RelayCommand]
@@ -349,7 +362,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     private void UpdateTitle()
     {
-        var inboxUnread = Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => n.Folder.WellKnown == WellKnownFolder.Inbox).Sum(n => n.Unread);
+        // The Inbox counter, subfolders included (mail filed there by rules is new mail too).
+        var inboxUnread = Roots.SelectMany(r => r.SelfAndDescendants()).Where(n => n.Folder.WellKnown == WellKnownFolder.Inbox).Sum(n => n.BadgeCount);
         var folder = SelectedFolder is { IsAccountRoot: false } f ? f.Name + " — " : "";
         WindowTitle = $"{folder}Корпоративная почта" + (inboxUnread > 0 ? $" ({inboxUnread})" : "");
     }
@@ -445,11 +459,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (changed.Count == 0) return;
         foreach (var i in changed) i.IsRead = read;
         folder.Unread = Math.Max(0, folder.Unread + (read ? -changed.Count : changed.Count));
-        folder.Session.Cache.SetReadState(changed.Select(i => i.Id), read);
+        // Without a connection the change waits in the cache and goes to the server with the next synchronization.
+        var sent = folder.Session.Sync.SetReadStateAsync(changed.Select(i => i.Id).ToList(), read);
         SettleUnread(folder);
         UpdateTitle();
-        await RunAsync("Не удалось изменить состояние «прочитано»",
-            () => folder.Session.Provider.SetReadStateAsync(changed.Select(i => i.Id), read));
+        await RunAsync("Не удалось изменить состояние «прочитано»", () => sent);
     }
 
     [RelayCommand] private Task MarkRead() => SetReadAsync(Targets, true);

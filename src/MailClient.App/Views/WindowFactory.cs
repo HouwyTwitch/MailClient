@@ -47,8 +47,8 @@ public static class WindowFactory
         w.Show();
     }
 
-    public static bool? EditAccount(AccountSettings account, CredentialProvider credentials, bool isNew) =>
-        ShowDialog(new AccountWindow(account, credentials, isNew));
+    public static bool? EditAccount(AccountSettings account, CredentialProvider credentials, bool isNew, AccountSession? session = null) =>
+        ShowDialog(new AccountWindow(account, credentials, isNew, session));
 
     public static FolderNodeViewModel? PickFolder(IEnumerable<FolderNodeViewModel> roots, string title, bool allowRoot = false)
     {
@@ -69,6 +69,9 @@ public static class WindowFactory
     public static void ForwardingRules(AccountSession session) => ShowDialog(new RulesWindow(session));
 
     public static bool? EditSettings(AppSettings settings) => ShowDialog(new SettingsWindow(settings));
+
+    /// <summary>Edits an account's signature; the running session (if any) offers the address book and Outlook on the web.</summary>
+    public static bool? EditSignature(AccountSettings account, AccountSession? session) => ShowDialog(new SignatureWindow(account, session));
 
     public static void About() => ShowDialog(new AboutWindow());
 }
