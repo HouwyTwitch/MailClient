@@ -133,7 +133,7 @@ public sealed class SyncEngine
             }
             if (result.Deleted.Count > 0) _cache.DeleteMessages(result.Deleted);
             foreach (var group in result.ReadFlagChanges.GroupBy(kv => kv.Value))
-                _cache.SetReadState(group.Select(kv => kv.Key), group.Key);
+                _cache.ApplyServerReadState(group.Select(kv => kv.Key), group.Key);
 
             changes += result.CreatedOrUpdated.Count + result.Deleted.Count + result.ReadFlagChanges.Count;
             state = result.SyncState;
@@ -154,6 +154,64 @@ public sealed class SyncEngine
         var fresh = arrived.Where(m => m.DateReceived > DateTimeOffset.UtcNow.AddDays(-1)).ToList();
         if (fresh.Count > 0) NewMessagesArrived?.Invoke(this, fresh);
         return changes;
+    }
+
+    /// <summary>
+    /// Marks messages read or unread: in the cache at once, then on the server. When the server cannot be reached
+    /// the change waits in the cache (synchronization keeps it) and goes out with <see cref="SendPendingChangesAsync"/>.
+    /// Returns false when the change is waiting; other server errors are thrown.
+    /// </summary>
+    public async Task<bool> SetReadStateAsync(IReadOnlyCollection<string> ids, bool isRead, CancellationToken ct = default)
+    {
+        if (ids.Count == 0) return true;
+        _cache.SetReadState(ids, isRead);
+        _cache.QueueReadState(ids, isRead);
+        try
+        {
+            await _provider.SetReadStateAsync(ids, isRead, ct).ConfigureAwait(false);
+        }
+        catch (MailConnectionException ex)
+        {
+            Diagnostics.MailLog.Warn?.Invoke($"Состояние «прочитано» будет отправлено на сервер, когда восстановится связь: {ex.Message}");
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch
+        {
+            _cache.CompletePendingReadStates(ids, isRead);
+            throw;
+        }
+        _cache.CompletePendingReadStates(ids, isRead);
+        return true;
+    }
+
+    /// <summary>
+    /// Sends changes made without a connection (read states). Connection and sign-in errors are thrown, so the
+    /// changes stay queued; a change the server refuses is dropped and the next synchronization restores its state.
+    /// </summary>
+    public async Task<int> SendPendingChangesAsync(CancellationToken ct = default)
+    {
+        var pending = _cache.GetPendingReadStates();
+        foreach (var group in pending.GroupBy(p => p.IsRead))
+        {
+            var ids = group.Select(p => p.Id).ToList();
+            foreach (var batch in ids.Chunk(100))
+            {
+                try
+                {
+                    await _provider.SetReadStateAsync(batch, group.Key, ct).ConfigureAwait(false);
+                }
+                catch (MailServiceException ex) when (ex is not MailConnectionException and not MailAuthenticationException)
+                {
+                    Diagnostics.MailLog.Warn?.Invoke($"Сервер не принял отложенное изменение «прочитано» ({batch.Length} писем): {ex.Message}");
+                }
+                _cache.CompletePendingReadStates(batch, group.Key);
+            }
+        }
+        return pending.Count;
     }
 
     /// <summary>Loads a full message, using the cache when possible.</summary>

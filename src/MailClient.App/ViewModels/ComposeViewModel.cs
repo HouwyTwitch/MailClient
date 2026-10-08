@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MailClient.App.Services;
@@ -78,6 +77,15 @@ public sealed partial class ComposeViewModel : ObservableObject
     /// <summary>Raised when the window should close after a successful send/save.</summary>
     public event EventHandler? CloseRequested;
 
+    /// <summary>
+    /// Raised with the signature of a newly chosen sender account: the view replaces the signature in the text
+    /// (a text without one is left alone).
+    /// </summary>
+    public event EventHandler<string>? SignatureChangeRequested;
+
+    partial void OnSelectedSessionChanged(AccountSession value) =>
+        SignatureChangeRequested?.Invoke(this, MessageSignature.Html(value.Settings));
+
     partial void OnSubjectChanged(string value)
     {
         IsDirty = true;
@@ -89,15 +97,12 @@ public sealed partial class ComposeViewModel : ObservableObject
 
     // ------------------------------------------------------------------ factories
 
-    private static string SignatureHtml(AccountSession s) =>
-        string.IsNullOrWhiteSpace(s.Settings.Signature)
-            ? ""
-            : "<p><br></p><div class=\"signature\">-- <br>" +
-              WebUtility.HtmlEncode(s.Settings.Signature).Replace("\r\n", "<br>").Replace("\n", "<br>") + "</div>";
-
     public static ComposeViewModel New(IReadOnlyList<AccountSession> sessions, AccountSession session)
     {
-        var vm = new ComposeViewModel(sessions, session) { InitialHtml = "<p><br></p>" + SignatureHtml(session) };
+        var vm = new ComposeViewModel(sessions, session)
+        {
+            InitialHtml = MessageSignature.InitialBody(MessageSignature.For(session.Settings, ComposeAction.New)),
+        };
         vm.IsDirty = false;
         return vm;
     }
@@ -108,7 +113,8 @@ public sealed partial class ComposeViewModel : ObservableObject
         {
             Action = action,
             ReferenceItemId = original.Id,
-            InitialHtml = "<p><br></p>" + SignatureHtml(session),
+            // The signature ends the new text; the quoted original follows it in the sent message.
+            InitialHtml = MessageSignature.InitialBody(MessageSignature.For(session.Settings, action)),
         };
         var me = (string.IsNullOrWhiteSpace(session.Settings.SharedMailbox) ? session.Settings.EmailAddress : session.Settings.SharedMailbox)
             .Trim();
@@ -204,7 +210,10 @@ public sealed partial class ComposeViewModel : ObservableObject
                     case "subject": vm.Subject = value; break;
                     case "cc": vm.Cc = value.Replace(',', ';'); break;
                     case "bcc": vm.Bcc = value.Replace(',', ';'); vm.ShowBcc = true; break;
-                    case "body": vm.InitialHtml = MessageHtmlBuilder.TextToHtml(value) + SignatureHtml(session); break;
+                    case "body":
+                        vm.InitialHtml = MessageHtmlBuilder.TextToHtml(value) +
+                                         MessageSignature.InitialBody(MessageSignature.For(session.Settings, ComposeAction.New));
+                        break;
                 }
             }
         }
@@ -424,6 +433,12 @@ public sealed partial class ComposeViewModel : ObservableObject
             IsDirty = false;
             SelectedSession.SyncNow();
             CloseRequested?.Invoke(this, EventArgs.Empty);
+        }
+        catch (MailClient.Core.Services.MailConnectionException ex)
+        {
+            Log.Error("Ошибка отправки", ex);
+            Dialogs.Error("Связь с сервером прервалась, подтверждение отправки не получено. Письмо осталось в этом окне — " +
+                          "отправьте его ещё раз, когда связь восстановится, или сохраните черновик.\n\n" + RuText.Error(ex), "Письмо не отправлено");
         }
         catch (Exception ex)
         {

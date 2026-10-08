@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using MailClient.Core.Models;
 using MailClient.Core.Security;
@@ -32,9 +33,11 @@ public static class ExchangeHttp
     public static HttpMessageHandler CreateHandler(AccountSettings account, ICredentialProvider credentials)
     {
         var sockets = NewSocketsHandler();
-        // NTLM/Negotiate are connection based - keep connections alive.
+        // NTLM/Negotiate are connection based - keep connections alive, but give up idle ones before the usual
+        // one-minute idle limit of firewalls and load balancers, which drop them without telling the client.
         sockets.PooledConnectionLifetime = TimeSpan.FromMinutes(10);
-        sockets.PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2);
+        sockets.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(50);
+        sockets.ConnectCallback = ConnectWithKeepAliveAsync;
         sockets.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
         sockets.UseCookies = true;
         sockets.CookieContainer = new CookieContainer();
@@ -52,6 +55,36 @@ public static class ExchangeHttp
                 return sockets;
             default:
                 throw new ArgumentOutOfRangeException(nameof(account), account.AuthMethod, "Неизвестный способ входа");
+        }
+    }
+
+    /// <summary>
+    /// Opens the TCP connection (to the server or to the proxy) with keep-alive probes every 15 seconds, so a
+    /// firewall between the computer and Exchange keeps it open while it waits in the pool.
+    /// </summary>
+    internal static async ValueTask<Stream> ConnectWithKeepAliveAsync(SocketsHttpConnectionContext context, CancellationToken ct)
+    {
+        var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            try
+            {
+                socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+                socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 5);
+                socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+            }
+            catch (SocketException)
+            {
+                // Older systems without per-socket timings use the system keep-alive settings.
+            }
+            await socket.ConnectAsync(context.DnsEndPoint, ct).ConfigureAwait(false);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
         }
     }
 

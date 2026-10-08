@@ -39,6 +39,12 @@ m:Folders = t:Folder!*
 m:GetAttachment = m:AttachmentShape m:AttachmentIds!
 m:GetFolder = m:FolderShape! m:FolderIds!
 m:GetInboxRules = m:MailboxSmtpAddress
+m:GetUserConfiguration = m:UserConfigurationName! m:UserConfigurationProperties!
+m:UserConfigurationName = t:DistinguishedFolderId!
+  @Name! : OWA.UserOptions
+m:UserConfigurationName/t:DistinguishedFolderId = t:Mailbox
+  @Id! : root
+m:UserConfigurationProperties : Dictionary
 m:GetItem = m:ItemShape! m:ItemIds!
 m:GetUserOofSettingsRequest = t:Mailbox!
 m:GetUserOofSettingsRequest/t:Mailbox = t:Name t:Address!

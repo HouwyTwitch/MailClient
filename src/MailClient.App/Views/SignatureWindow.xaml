@@ -1,0 +1,45 @@
+<Window x:Class="MailClient.App.Views.SignatureWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctl="clr-namespace:MailClient.App.Controls"
+        Style="{StaticResource AppWindow}" Title="Подпись" Icon="/Assets/app.ico"
+        Width="820" Height="600" MinWidth="560" MinHeight="420" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Brush.SurfaceAlt}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="20,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="Сохранить" Style="{StaticResource AccentButton}" IsDefault="True" MinWidth="110" Click="Save_Click"/>
+                    <Button Content="Отмена" IsCancel="True" MinWidth="90" Margin="8,0,0,0"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusText" Style="{StaticResource Caption}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+            </DockPanel>
+        </Border>
+
+        <StackPanel DockPanel.Dock="Top" Margin="20,14,20,0">
+            <TextBlock x:Name="HeaderText" Text="Подпись" FontSize="18" FontWeight="SemiBold"/>
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Подпись добавляется в конец текста письма, в ответах — над исходным письмом. В окне письма её можно вставить или убрать кнопкой «Подпись»."/>
+            <WrapPanel Margin="0,10,0,0">
+                <Button x:Name="DirectoryButton" Style="{StaticResource ToolButton}" Tag="&#xE77B;" Content="Заполнить из адресной книги" Click="Directory_Click"
+                        ToolTip="Подпись с вашими ФИО, должностью, отделом и телефонами из адресной книги организации"/>
+                <Button x:Name="WebButton" Style="{StaticResource ToolButton}" Tag="&#xE774;" Content="Взять из Outlook в Интернете" Click="Web_Click"
+                        ToolTip="Подпись, настроенная в Outlook в Интернете (OWA) для этого почтового ящика"/>
+                <Button Style="{StaticResource ToolButton}" Tag="&#xE74D;" Content="Очистить" Click="Clear_Click"/>
+            </WrapPanel>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="20,8,20,12">
+            <CheckBox x:Name="OnNewCheck" Content="Добавлять подпись в новые письма"/>
+            <CheckBox x:Name="OnReplyCheck" Content="Добавлять подпись в ответы и пересылаемые письма" Margin="0,6,0,0"/>
+        </StackPanel>
+
+        <Border Margin="20,10,20,0" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="6" Padding="6,6,6,2">
+            <DockPanel>
+                <Border x:Name="FormatBar" DockPanel.Dock="Top" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="0,0,0,5">
+                    <ctl:FormattingBar x:Name="Formatting"/>
+                </Border>
+                <ctl:HtmlEditor x:Name="Editor" AutomationProperties.Name="Текст подписи" MinHeight="160"/>
+            </DockPanel>
+        </Border>
+    </DockPanel>
+</Window>

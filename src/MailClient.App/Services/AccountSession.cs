@@ -75,6 +75,8 @@ public sealed class AccountSession : IDisposable
             try
             {
                 SetStatus("Синхронизация…", IsOnline);
+                // Changes made while offline go first, so the synchronization below already sees them on the server.
+                await Sync.SendPendingChangesAsync(ct).ConfigureAwait(false);
                 if (DateTime.UtcNow - _lastFolderRefresh > TimeSpan.FromMinutes(5))
                 {
                     await Sync.SyncFoldersAsync(ct).ConfigureAwait(false);
@@ -126,7 +128,13 @@ public sealed class AccountSession : IDisposable
             {
                 failures++;
                 Log.Warn($"[{Settings.EmailAddress}] Ошибка синхронизации: {MailClient.Core.Diagnostics.MailLog.Describe(ex)}");
-                SetStatus(ex is MailConnectionException ? "Нет связи с сервером — автономный режим" : "Ошибка синхронизации: " + ex.Message, false);
+                SetStatus(ex switch
+                {
+                    MailConnectionException => "Нет связи с сервером — автономный режим",
+                    MailServiceException { ErrorCode: "ErrorServerBusy" or "ErrorExceededConnectionCount" or "ErrorTooManyObjectsOpened" } =>
+                        "Сервер временно ограничил число запросов — синхронизация продолжится автоматически",
+                    _ => "Ошибка синхронизации: " + ex.Message,
+                }, false);
             }
 
             // Back off on repeated failures (max 10 min), otherwise use the configured interval.

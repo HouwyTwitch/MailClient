@@ -17,6 +17,7 @@ public partial class AccountWindow : Window
     private readonly CredentialProvider _credentials;
     private readonly bool _isNew;
     private readonly OrganizationDefaults _org;
+    private readonly AccountSession? _session;
     private string _certPem;
     private bool _passwordChanged;
     private bool _forgetStoredPassword;
@@ -30,10 +31,11 @@ public partial class AccountWindow : Window
 
     private static string WindowsAccount => $"{Environment.UserDomainName}\\{Environment.UserName}";
 
-    public AccountWindow(AccountSettings account, CredentialProvider credentials, bool isNew)
+    public AccountWindow(AccountSettings account, CredentialProvider credentials, bool isNew, AccountSession? session = null)
     {
         InitializeComponent();
         _account = account;
+        _session = session;
         _credentials = credentials;
         _isNew = isNew;
         _org = OrganizationDefaults.Current;
@@ -47,7 +49,7 @@ public partial class AccountWindow : Window
         DomainBox.Text = account.Domain;
         EwsBox.Text = account.EwsUrl;
         SharedBox.Text = account.SharedMailbox;
-        SignatureBox.Text = account.Signature;
+        ShowSignature();
         Select(AuthCombo, account.AuthScheme.ToString());
         Select(VersionCombo, account.ServerVersion.ToString());
         Select(IntervalCombo, account.SyncIntervalSeconds.ToString(CultureInfo.InvariantCulture));
@@ -205,6 +207,20 @@ public partial class AccountWindow : Window
         }
     }
 
+    /// <summary>A short preview of the signature (its text) next to the «Изменить подпись…» button.</summary>
+    private void ShowSignature()
+    {
+        var text = MailClient.Core.Rendering.MessageHtmlBuilder.HtmlToText(MailClient.Core.Rendering.MessageSignature.Html(_account)).Trim();
+        SignatureText.Text = text.Length == 0 ? "Не задана" : text;
+    }
+
+    /// <summary>The signature is part of these settings: it is kept with «Сохранить» of this window.</summary>
+    private void EditSignature_Click(object sender, RoutedEventArgs e)
+    {
+        _account.EmailAddress = EmailBox.Text.Trim();
+        if (WindowFactory.EditSignature(_account, _session) == true) ShowSignature();
+    }
+
     private void ClearCert_Click(object sender, RoutedEventArgs e)
     {
         _certPem = "";
@@ -225,7 +241,6 @@ public partial class AccountWindow : Window
         a.EwsUrl = EwsBox.Text.Trim();
         a.ServerVersion = Enum.Parse<ExchangeServerVersion>(TagOf(VersionCombo));
         a.SharedMailbox = SharedBox.Text.Trim();
-        a.Signature = SignatureBox.Text;
         a.SyncIntervalSeconds = int.Parse(TagOf(IntervalCombo), CultureInfo.InvariantCulture);
         a.TrustedRootCertificatesPem = _certPem;
         a.Protocol = IsImap ? MailProtocol.Imap : MailProtocol.Exchange;

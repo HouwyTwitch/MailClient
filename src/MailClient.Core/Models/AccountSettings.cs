@@ -99,10 +99,28 @@ public sealed class AccountSettings
 
     public int SyncIntervalSeconds { get; set; } = 60;
 
-    /// <summary>Plain text signature appended to new messages.</summary>
+    /// <summary>Plain text signature of earlier versions: used (as HTML lines) until a signature is saved in <see cref="SignatureHtml"/>.</summary>
     public string Signature { get; set; } = "";
+
+    /// <summary>Signature (HTML) placed at the end of the message text; empty for none.</summary>
+    public string SignatureHtml { get; set; } = "";
+
+    /// <summary>Add the signature to new messages.</summary>
+    public bool SignatureOnNew { get; set; } = true;
+
+    /// <summary>Add the signature to replies and forwarded messages (above the quoted original).</summary>
+    public bool SignatureOnReply { get; set; } = true;
 
     public string EffectiveDisplayName => string.IsNullOrWhiteSpace(DisplayName) ? EmailAddress : DisplayName;
 
     public AccountSettings Clone() => (AccountSettings)MemberwiseClone();
+
+    /// <summary>Takes over the signature and its options (edited on a copy of these settings).</summary>
+    public void CopySignatureFrom(AccountSettings other)
+    {
+        SignatureHtml = other.SignatureHtml;
+        Signature = other.Signature;
+        SignatureOnNew = other.SignatureOnNew;
+        SignatureOnReply = other.SignatureOnReply;
+    }
 }
